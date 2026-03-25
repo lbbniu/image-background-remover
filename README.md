@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ClearCut - Image Background Remover
 
-## Getting Started
+🖼️ 3秒智能抠图工具 - 基于 Next.js + Tailwind CSS
 
-First, run the development server:
+## ✨ 特性
+
+- ⚡ **极速处理**：Next.js App Router，服务端API
+- 🔒 **隐私优先**：图片仅内存处理，不落盘
+- 📱 **全平台**：支持拖拽、粘贴、点击上传
+- 🎨 **现代UI**：Tailwind CSS 精美界面
+- 🚀 **易部署**：支持 Vercel、Docker 等多种方式
+
+## 🛠️ 技术栈
+
+- **框架**: Next.js 14 (App Router)
+- **样式**: Tailwind CSS
+- **语言**: TypeScript
+- **API**: Remove.bg API
+
+## 🚀 快速开始
+
+### 1. 安装依赖
+
+```bash
+npm install
+```
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env.local
+```
+
+编辑 `.env.local`：
+```
+REMOVE_BG_API_KEY=your_api_key_here
+```
+
+获取 API Key: https://www.remove.bg/api
+
+### 3. 开发模式
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+访问 http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. 构建部署
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## 📁 项目结构
 
-To learn more about Next.js, take a look at the following resources:
+```
+app/
+├── api/remove-bg/route.ts  # API路由
+├── layout.tsx              # 根布局
+├── page.tsx               # 首页
+└── globals.css            # 全局样式
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🌐 部署
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Vercel (推荐)
 
-## Deploy on Vercel
+```bash
+npm i -g vercel
+vercel
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Docker
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+docker build -t clearcut .
+docker run -p 3000:3000 -e REMOVE_BG_API_KEY=xxx clearcut
+```
+
+## 💰 成本
+
+- **Remove.bg**: 50张/月免费，超出 $0.2/张
+- **Vercel**: 免费额度充足
+
+## 📄 许可
+
+MIT License
