@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 export default function Home() {
   const [originalImage, setOriginalImage] = useState<string | null>(null)
@@ -8,6 +8,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -15,17 +16,19 @@ export default function Home() {
       return
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('图片太大，请压缩至 5MB 以下')
+    if (file.size > 20 * 1024 * 1024) {
+      setError('图片太大，请压缩至 20MB 以下')
       return
     }
 
     setError(null)
     setLoading(true)
+    setUploadProgress(0)
 
     try {
       const base64 = await fileToBase64(file)
       setOriginalImage(base64)
+      setUploadProgress(30)
 
       const response = await fetch('/api/remove-bg', {
         method: 'POST',
@@ -33,13 +36,16 @@ export default function Home() {
         body: JSON.stringify({ image: base64 }),
       })
 
+      setUploadProgress(70)
+
       const data = await response.json()
 
       if (!data.success) {
         throw new Error(data.error || '处理失败')
       }
 
-      setResultImage(data.image)
+      setUploadProgress(100)
+      setTimeout(() => setResultImage(data.image), 300)
     } catch (err) {
       setError(err instanceof Error ? err.message : '处理失败，请重试')
     } finally {
@@ -88,108 +94,228 @@ export default function Home() {
     setOriginalImage(null)
     setResultImage(null)
     setError(null)
+    setUploadProgress(0)
   }
 
+  // Keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        // Paste handled by onPaste
+      }
+      if (e.key === 'Escape' && resultImage) {
+        reset()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [resultImage])
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl" onPaste={onPaste}>
-      <header className="text-center mb-10">
-        <h1 className="text-4xl font-bold text-gray-800 mb-2">🖼️ ClearCut</h1>
-        <p className="text-gray-600 text-lg">3秒智能抠图，无需注册，即传即走</p>
-      </header>
-
-      {!resultImage ? (
-        <div
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          className={`rounded-2xl p-12 text-center bg-white shadow-sm mb-8 border-3 border-dashed transition-all cursor-pointer ${
-            dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-          }`}
-          style={{ borderWidth: '3px' }}
-          onClick={() => document.getElementById('fileInput')?.click()}
-        >
-          <input
-            type="file"
-            id="fileInput"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
-
-          {loading ? (
-            <div>
-              <div className="text-6xl mb-4 animate-pulse">✨</div>
-              <p className="text-xl text-gray-700">正在智能抠图中...</p>
-              <p className="text-gray-500 mt-2">请稍候，AI 正在处理</p>
+    <div className="min-h-screen py-8 px-4" onPaste={onPaste}>
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <header className="text-center mb-12">
+          <div className="inline-flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
             </div>
-          ) : (
-            <div>
-              <div className="text-6xl mb-4">📤</div>
-              <p className="text-xl text-gray-700 mb-2">拖放图片到这里</p>
-              <p className="text-gray-500 mb-4">或粘贴 (Ctrl+V) / 点击选择</p>
-              <p className="text-sm text-gray-400">支持 JPG、PNG、WEBP (最大 5MB)</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">处理结果</h2>
+            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent glow-text">
+              ClearCut
+            </h1>
+          </div>
+          <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto">
+            AI 驱动的智能抠图引擎
+            <span className="text-cyan-400"> · </span>
+            一键去除背景
+            <span className="text-cyan-400"> · </span>
+            无需注册
+          </p>
+        </header>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="text-center">
-              <p className="text-sm text-gray-500 mb-2">原图</p>
-              <div className="bg-gray-100 rounded-lg p-2">
-                {originalImage && (
-                  <img src={originalImage} alt="原图" className="max-w-full rounded" />
-                )}
-              </div>
-            </div>
+        {/* Main Content */}
+        {!resultImage ? (
+          <div className="glass-card rounded-3xl p-1 glow-border">
+            <div
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              className={`upload-zone rounded-[22px] p-12 md:p-16 text-center cursor-pointer relative overflow-hidden ${
+                dragOver ? 'active' : ''
+              }`}
+              onClick={() => document.getElementById('fileInput')?.click()}
+            >
+              <input
+                type="file"
+                id="fileInput"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+              />
 
-            <div className="text-center">
-              <p className="text-sm text-gray-500 mb-2">抠图后</p>
-              <div 
-                className="rounded-lg p-2"
-                style={{
-                  backgroundImage: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
-                  backgroundSize: '20px 20px',
-                  backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px'
-                }}
+              {loading ? (
+                <div className="relative z-10">
+                  <div className="loading-ring mb-6"></div>
+                  <p className="text-xl font-medium text-white mb-2">
+                    AI 正在智能分析...
+                  </p>
+                  <p className="text-gray-400 mb-6">
+                    识别主体 & 去除背景
+                  </p>
+                  
+                  {/* Progress bar */}
+                  <div className="max-w-xs mx-auto">
+                    <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-500 transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-sm text-gray-500 mt-2">{uploadProgress}%</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative z-10">
+                  <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center border border-indigo-500/30" style={{width: '6rem', height: '6rem'}}>
+                    <svg className="w-12 h-12 text-indigo-400" width={48} height={48} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  
+                  <p className="text-2xl font-semibold text-white mb-2">
+                    拖放图片到这里
+                  </p>
+                  <p className="text-gray-400 mb-6">
+                    或粘贴 <span className="px-2 py-1 bg-gray-800 rounded text-sm text-cyan-400">Ctrl+V</span>
+                    <span className="mx-2">/</span>
+                    点击选择
+                  </p>
+                  
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">JPG</span>
+                    <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">PNG</span>
+                    <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">WEBP</span>
+                    <span className="px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-full text-sm text-cyan-400 border border-indigo-500/30">最大 20MB</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Decorative elements */}
+              <div className="absolute top-4 left-4 w-20 h-20 border-l-2 border-t-2 border-indigo-500/20 rounded-tl-3xl" />
+              <div className="absolute top-4 right-4 w-20 h-20 border-r-2 border-t-2 border-indigo-500/20 rounded-tr-3xl" />
+              <div className="absolute bottom-4 left-4 w-20 h-20 border-l-2 border-b-2 border-indigo-500/20 rounded-bl-3xl" />
+              <div className="absolute bottom-4 right-4 w-20 h-20 border-r-2 border-b-2 border-indigo-500/20 rounded-br-3xl" />
+            </div>
+          </div>
+        ) : (
+          <div className="glass-card rounded-3xl p-6 md:p-8 glow-border">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">处理结果</h2>
+              <button
+                onClick={reset}
+                className="btn-secondary px-4 py-2 rounded-lg text-sm flex items-center gap-2"
               >
-                {resultImage && (
-                  <img src={resultImage} alt="抠图结果" className="max-w-full rounded" />
-                )}
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                重新上传
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-400">原始图片</span>
+                  <span className="text-xs text-gray-500">Original</span>
+                </div>
+                <div className="image-container rounded-xl overflow-hidden aspect-square">
+                  {originalImage && (
+                    <img 
+                      src={originalImage} 
+                      alt="原图" 
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-400">抠图结果</span>
+                  <span className="text-xs text-cyan-400">AI Processed</span>
+                </div>
+                <div className="image-container rounded-xl overflow-hidden aspect-square relative">
+                  {resultImage && (
+                    <img 
+                      src={resultImage} 
+                      alt="抠图结果" 
+                      className="w-full h-full object-contain"
+                    />
+                  )}
+                  <div className="absolute top-2 right-2 px-2 py-1 bg-cyan-500/20 backdrop-blur rounded text-xs text-cyan-400 border border-cyan-500/30">
+                    透明背景
+                  </div>
+                </div>
               </div>
             </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
+              <a
+                href={resultImage || '#'}
+                download="clearcut-result.png"
+                className="btn-primary px-8 py-4 rounded-xl font-semibold text-center flex items-center justify-center gap-3"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                下载透明背景 PNG
+              </a>
+            </div>
           </div>
+        )}
 
-          <div className="text-center mt-6 space-x-4">
-            <a
-              href={resultImage || '#'}
-              download="clearcut-result.png"
-              className="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
-            >
-              💾 下载透明背景PNG
-            </a>
-            <button
-              onClick={reset}
-              className="inline-block bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-300 transition"
-            >
-              🔄 重新上传
-            </button>
+        {/* Error Message */}
+        {error && (
+          <div className="mt-6 glass-card rounded-xl p-4 border border-red-500/30">
+            <div className="flex items-center gap-3 text-red-400">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p>{error}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-center">
-          <p className="text-red-600">{error}</p>
+        {/* Features */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-12">
+          {[
+            { icon: '⚡', title: '极速出图', desc: 'AI智能处理' },
+            { icon: '🎯', title: 'AI精准', desc: '智能识别' },
+            { icon: '🔒', title: '隐私保护', desc: '本地处理' },
+            { icon: '💎', title: '高清输出', desc: '4K支持' },
+          ].map((feature, i) => (
+            <div key={i} className="glass-card rounded-2xl p-4 text-center hover:border-indigo-500/30 transition-colors">
+              <div className="text-3xl mb-2">{feature.icon}</div>
+              <p className="font-medium text-white">{feature.title}</p>
+              <p className="text-sm text-gray-500">{feature.desc}</p>
+            </div>
+          ))}
         </div>
-      )}
 
-      <footer className="mt-12 text-center text-gray-500 text-sm">
-        <p className="mb-2">💡 小贴士：证件照、商品图、表情包、设计素材</p>
-        <p>🔒 图片仅内存处理，保护您的隐私</p>
-      </footer>
+        {/* Footer */}
+        <footer className="mt-16 text-center text-gray-500 text-sm">
+          <p className="flex items-center justify-center gap-2 flex-wrap">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              服务运行中
+            </span>
+            <span className="text-gray-700">|</span>
+            <span>支持证件照、商品图、设计素材</span>
+          </p>
+        </footer>
+      </div>
     </div>
   )
 }
