@@ -1,22 +1,40 @@
 // JWT 签名/验证 + Cookie 工具（Web Crypto API，无 Node.js 依赖）
 
 function base64url(input) {
+  let binary;
   if (typeof input === 'string') {
-    return btoa(input).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  // ArrayBuffer
-  const bytes = new Uint8Array(input);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    // UTF-8 编码后再 base64，避免 btoa() 不支持 Unicode（如中文用户名）
+    const bytes = new TextEncoder().encode(input);
+    binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+  } else {
+    // ArrayBuffer
+    const bytes = new Uint8Array(input);
+    binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// 返回 raw binary string（用于签名验证）
 function base64urlDecode(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4) str += '=';
   return atob(str);
+}
+
+// UTF-8 感知的解码（用于 payload JSON 解析）
+function base64urlDecodeUtf8(str) {
+  const binary = base64urlDecode(str);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 async function getSigningKey(secret) {
@@ -71,7 +89,7 @@ export async function verifyJWT(token, secret) {
     const valid = await crypto.subtle.verify('HMAC', key, sigBytes, encoder.encode(data));
     if (!valid) return null;
 
-    const payload = JSON.parse(base64urlDecode(payloadB64));
+    const payload = JSON.parse(base64urlDecodeUtf8(payloadB64));
 
     // Check expiration
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
