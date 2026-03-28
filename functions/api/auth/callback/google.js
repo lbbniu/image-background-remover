@@ -1,4 +1,4 @@
-// Google OAuth 回调处理 — 交换 token、存入 D1、签发 JWT
+// Google OAuth 回调处理 — 交换 token、存入 D1（可选）、签发 JWT
 import { signJWT, setAuthCookie } from '../../../lib/auth.js';
 
 export async function onRequestGet(context) {
@@ -45,23 +45,32 @@ export async function onRequestGet(context) {
 
     const googleUser = await userRes.json();
 
-    // 3. 存入 D1 数据库（创建或更新）
+    // 3. 存入 D1 数据库（可选 — D1 未绑定时跳过）
+    let userId = googleUser.id; // 默认用 Google ID
     const db = env.DB;
-    const existingUser = await db.prepare(
-      'SELECT id FROM users WHERE google_id = ?'
-    ).bind(googleUser.id).first();
+    if (db) {
+      try {
+        const existingUser = await db.prepare(
+          'SELECT id FROM users WHERE google_id = ?'
+        ).bind(googleUser.id).first();
 
-    let userId;
-    if (existingUser) {
-      await db.prepare(
-        'UPDATE users SET name = ?, avatar = ?, last_login = datetime(\'now\') WHERE google_id = ?'
-      ).bind(googleUser.name, googleUser.picture, googleUser.id).run();
-      userId = existingUser.id;
+        if (existingUser) {
+          await db.prepare(
+            'UPDATE users SET name = ?, avatar = ?, last_login = datetime(\'now\') WHERE google_id = ?'
+          ).bind(googleUser.name, googleUser.picture, googleUser.id).run();
+          userId = existingUser.id;
+        } else {
+          const result = await db.prepare(
+            'INSERT INTO users (google_id, email, name, avatar) VALUES (?, ?, ?, ?)'
+          ).bind(googleUser.id, googleUser.email, googleUser.name, googleUser.picture).run();
+          userId = result.meta.last_row_id;
+        }
+      } catch (dbErr) {
+        console.error('D1 database error (non-fatal):', dbErr);
+        // D1 操作失败时继续使用 Google ID，不阻断登录流程
+      }
     } else {
-      const result = await db.prepare(
-        'INSERT INTO users (google_id, email, name, avatar) VALUES (?, ?, ?, ?)'
-      ).bind(googleUser.id, googleUser.email, googleUser.name, googleUser.picture).run();
-      userId = result.meta.last_row_id;
+      console.warn('D1 not bound — skipping user storage');
     }
 
     // 4. 签发 JWT
