@@ -11,8 +11,10 @@ export async function onRequestGet(context) {
     return Response.redirect(`${url.origin}/?error=auth_failed`, 302);
   }
 
+  let step = 'init';
   try {
     const redirectUri = `${url.origin}/api/auth/callback/google`;
+    step = 'token_exchange';
 
     // 1. 用 authorization code 换取 tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -28,11 +30,13 @@ export async function onRequestGet(context) {
     });
 
     if (!tokenRes.ok) {
-      console.error('Token exchange failed:', await tokenRes.text());
-      return Response.redirect(`${url.origin}/?error=token_failed`, 302);
+      const errText = await tokenRes.text();
+      console.error('Token exchange failed:', errText);
+      return Response.redirect(`${url.origin}/?error=token_failed&detail=${encodeURIComponent(errText.substring(0, 200))}`, 302);
     }
 
     const tokens = await tokenRes.json();
+    step = 'userinfo';
 
     // 2. 获取用户信息
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -40,13 +44,14 @@ export async function onRequestGet(context) {
     });
 
     if (!userRes.ok) {
-      return Response.redirect(`${url.origin}/?error=userinfo_failed`, 302);
+      return Response.redirect(`${url.origin}/?error=userinfo_failed&status=${userRes.status}`, 302);
     }
 
     const googleUser = await userRes.json();
+    step = 'd1';
 
     // 3. 存入 D1 数据库（可选 — D1 未绑定时跳过）
-    let userId = googleUser.id; // 默认用 Google ID
+    let userId = googleUser.id;
     const db = env.DB;
     if (db) {
       try {
@@ -67,11 +72,10 @@ export async function onRequestGet(context) {
         }
       } catch (dbErr) {
         console.error('D1 database error (non-fatal):', dbErr);
-        // D1 操作失败时继续使用 Google ID，不阻断登录流程
       }
-    } else {
-      console.warn('D1 not bound — skipping user storage');
     }
+
+    step = 'jwt';
 
     // 4. 签发 JWT
     const secret = env.JWT_SECRET || 'clearcut-default-secret-change-me';
@@ -81,6 +85,8 @@ export async function onRequestGet(context) {
       name: googleUser.name,
       avatar: googleUser.picture,
     }, secret);
+
+    step = 'cookie';
 
     // 5. 设置 cookie 并重定向回首页
     return new Response(null, {
@@ -92,7 +98,11 @@ export async function onRequestGet(context) {
     });
 
   } catch (err) {
-    console.error('OAuth callback error:', err);
-    return Response.redirect(`${url.origin}/?error=server_error`, 302);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`OAuth callback error at step [${step}]:`, err);
+    return Response.redirect(
+      `${url.origin}/?error=server_error&step=${step}&detail=${encodeURIComponent(msg.substring(0, 200))}`,
+      302
+    );
   }
 }
