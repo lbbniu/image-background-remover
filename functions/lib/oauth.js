@@ -1,4 +1,5 @@
 // 通用 OAuth 用户处理（支持 Google / GitHub / 微信等多平台）
+import { initUserQuota } from './quota.js';
 
 /**
  * 查找或创建 OAuth 用户
@@ -38,11 +39,15 @@ export async function findOrCreateOAuthUser(db, { provider, providerId, email, n
   }
 
   // 3. 全新用户 → 创建
+  let isNewUser = false;
   if (!userId) {
+    isNewUser = true;
     const result = await db.prepare(
       'INSERT INTO users (email, name, avatar) VALUES (?, ?, ?)'
     ).bind(email, name, avatar).run();
     userId = result.meta.last_row_id;
+    // 新用户送3次额度
+    await initUserQuota(db, userId);
   }
 
   // 4. 创建 OAuth 关联
