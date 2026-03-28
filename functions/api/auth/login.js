@@ -10,7 +10,7 @@ export async function onRequestGet(context) {
 
   // 获取当前域名作为回调地址
   const url = new URL(request.url);
-  const redirectUri = `${url.origin}/api/auth/callback`;
+  const redirectUri = `${url.origin}/api/auth/callback/google`;
 
   const params = new URLSearchParams({
     client_id: clientId,

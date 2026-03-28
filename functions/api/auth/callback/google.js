@@ -1,5 +1,5 @@
 // Google OAuth 回调处理 — 交换 token、存入 D1、签发 JWT
-import { signJWT, setAuthCookie } from '../../lib/auth.js';
+import { signJWT, setAuthCookie } from '../../../lib/auth.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -12,7 +12,7 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const redirectUri = `${url.origin}/api/auth/callback`;
+    const redirectUri = `${url.origin}/api/auth/callback/google`;
 
     // 1. 用 authorization code 换取 tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
