@@ -1,5 +1,6 @@
-// Google OAuth 回调处理 — 交换 token、存入 D1（可选）、签发 JWT
+// Google OAuth 回调处理
 import { signJWT, setAuthCookie } from '../../../lib/auth.js';
+import { findOrCreateOAuthUser } from '../../../lib/oauth.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -32,7 +33,7 @@ export async function onRequestGet(context) {
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
       console.error('Token exchange failed:', errText);
-      return Response.redirect(`${url.origin}/?error=token_failed&detail=${encodeURIComponent(errText.substring(0, 200))}`, 302);
+      return Response.redirect(`${url.origin}/?error=token_failed`, 302);
     }
 
     const tokens = await tokenRes.json();
@@ -44,34 +45,26 @@ export async function onRequestGet(context) {
     });
 
     if (!userRes.ok) {
-      return Response.redirect(`${url.origin}/?error=userinfo_failed&status=${userRes.status}`, 302);
+      return Response.redirect(`${url.origin}/?error=userinfo_failed`, 302);
     }
 
     const googleUser = await userRes.json();
-    step = 'd1';
+    step = 'db';
 
-    // 3. 存入 D1 数据库（可选 — D1 未绑定时跳过）
+    // 3. 查找或创建用户（通用多平台逻辑）
     let userId = googleUser.id;
     const db = env.DB;
     if (db) {
       try {
-        const existingUser = await db.prepare(
-          'SELECT id FROM users WHERE google_id = ?'
-        ).bind(googleUser.id).first();
-
-        if (existingUser) {
-          await db.prepare(
-            'UPDATE users SET name = ?, avatar = ?, last_login = datetime(\'now\') WHERE google_id = ?'
-          ).bind(googleUser.name, googleUser.picture, googleUser.id).run();
-          userId = existingUser.id;
-        } else {
-          const result = await db.prepare(
-            'INSERT INTO users (google_id, email, name, avatar) VALUES (?, ?, ?, ?)'
-          ).bind(googleUser.id, googleUser.email, googleUser.name, googleUser.picture).run();
-          userId = result.meta.last_row_id;
-        }
+        userId = await findOrCreateOAuthUser(db, {
+          provider: 'google',
+          providerId: googleUser.id,
+          email: googleUser.email,
+          name: googleUser.name,
+          avatar: googleUser.picture,
+        });
       } catch (dbErr) {
-        console.error('D1 database error (non-fatal):', dbErr);
+        console.error('D1 error (non-fatal):', dbErr);
       }
     }
 
