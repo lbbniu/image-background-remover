@@ -242,7 +242,6 @@ export default function Home() {
                     <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">JPG</span>
                     <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">PNG</span>
                     <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">WEBP</span>
-                    <span className="px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-full text-sm text-cyan-400 border border-indigo-500/30">最大 20MB</span>
                   </div>
                 </div>
               )}

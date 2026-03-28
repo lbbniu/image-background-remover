@@ -32,9 +32,9 @@ export async function onRequestPost(context) {
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
     const bytes = base64ToUint8Array(base64Data);
 
-    if (bytes.length > 5 * 1024 * 1024) {
+    if (bytes.length > 20 * 1024 * 1024) {
       return Response.json(
-        { success: false, error: 'Image too large. Max 5MB.' },
+        { success: false, error: 'Image too large. Max 20MB.' },
         { status: 400 }
       );
     }
