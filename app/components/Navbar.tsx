@@ -51,14 +51,8 @@ export default function Navbar({ activePage }: NavbarProps) {
           <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ClearCut</span>
         </Link>
 
-        {/* Center: Language Switch + Nav Links (desktop only) */}
+        {/* Center: Nav Links (desktop only) */}
         <div className="hidden md:flex items-center gap-4">
-          <button
-            onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors"
-          >
-            {locale === 'zh' ? 'EN' : '中'}
-          </button>
           {navLinks.map(link => (
             <Link
               key={link.key}
@@ -76,8 +70,14 @@ export default function Navbar({ activePage }: NavbarProps) {
 
         {/* Right: User area (desktop) + Hamburger (mobile) */}
         <div className="flex items-center gap-3">
-          {/* Desktop user area */}
-          <div className="hidden md:flex items-center">
+          {/* Desktop: Language switch + user area */}
+          <div className="hidden md:flex items-center gap-3">
+            <button
+              onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors"
+            >
+              {locale === 'zh' ? 'EN' : '中'}
+            </button>
             {user ? (
               <Link
                 href="/profile"
