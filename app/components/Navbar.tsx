@@ -22,7 +22,6 @@ export default function Navbar({ activePage }: NavbarProps) {
       .catch(() => {})
   }, [])
 
-  // Close menu on route change (clicking a link)
   const closeMenu = () => setMenuOpen(false)
 
   const navLinks: { key: 'home' | 'pricing'; label: string; href: string }[] = [
@@ -39,28 +38,26 @@ export default function Navbar({ activePage }: NavbarProps) {
     </svg>
   )
 
-  const LanguageButton = ({ className }: { className?: string }) => (
-    <button
-      onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
-      className={`px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors ${className || ''}`}
-    >
-      {locale === 'zh' ? 'EN' : '中'}
-    </button>
-  )
-
   return (
     <nav className="relative mb-12">
-      {/* Main bar */}
       <div className="flex items-center justify-between">
-        {/* Left: Logo */}
-        <Link href="/" className="flex items-center gap-2" onClick={closeMenu}>
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-            </svg>
-          </div>
-          <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ClearCut</span>
-        </Link>
+        {/* Left: Logo + Language Switch (always visible) */}
+        <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-2" onClick={closeMenu}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+            </div>
+            <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ClearCut</span>
+          </Link>
+          <button
+            onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors"
+          >
+            {locale === 'zh' ? 'EN' : '中'}
+          </button>
+        </div>
 
         {/* Center: Nav Links (desktop only) */}
         <div className="hidden md:flex items-center gap-4">
@@ -79,12 +76,10 @@ export default function Navbar({ activePage }: NavbarProps) {
           ))}
         </div>
 
-        {/* Right: Desktop actions + Mobile hamburger */}
+        {/* Right: User area (desktop) + Hamburger (mobile) */}
         <div className="flex items-center gap-3">
-          {/* Desktop: Language + User (hidden on mobile) */}
-          <div className="hidden md:flex items-center gap-3">
-            <LanguageButton />
-
+          {/* Desktop user area */}
+          <div className="hidden md:flex items-center">
             {user ? (
               <Link
                 href="/profile"
@@ -112,7 +107,7 @@ export default function Navbar({ activePage }: NavbarProps) {
             )}
           </div>
 
-          {/* Mobile: Hamburger button */}
+          {/* Mobile hamburger */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="md:hidden flex items-center justify-center w-10 h-10 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
@@ -131,10 +126,9 @@ export default function Navbar({ activePage }: NavbarProps) {
         </div>
       </div>
 
-      {/* Mobile dropdown menu */}
+      {/* Mobile dropdown (nav links + user only, no language switch) */}
       {menuOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 mt-3 rounded-2xl p-4 z-50 border border-white/10 bg-[rgba(12,12,24,0.97)] backdrop-blur-xl shadow-2xl shadow-black/50">
-          {/* Nav links */}
           <div className="flex flex-col gap-1 mb-4">
             {navLinks.map(link => (
               <Link
@@ -152,18 +146,12 @@ export default function Navbar({ activePage }: NavbarProps) {
             ))}
           </div>
 
-          {/* Divider */}
-          <div className="border-t border-white/10 mb-4" />
-
-          {/* Language + User */}
-          <div className="flex items-center justify-between px-4">
-            <LanguageButton />
-
+          <div className="border-t border-white/10 pt-4 px-4">
             {user ? (
               <Link
                 href="/profile"
                 onClick={closeMenu}
-                className="flex items-center gap-3 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors"
+                className="flex items-center gap-3 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors w-fit"
               >
                 <img
                   src={user.avatar}
@@ -176,7 +164,7 @@ export default function Navbar({ activePage }: NavbarProps) {
             ) : (
               <a
                 href="/api/auth/login"
-                className="flex items-center gap-2 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors"
+                className="flex items-center gap-2 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors w-fit"
               >
                 <GoogleIcon />
                 <span className="text-sm text-gray-300">{t.nav.login}</span>
