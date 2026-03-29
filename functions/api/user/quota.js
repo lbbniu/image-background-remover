@@ -1,6 +1,6 @@
 // 获取当前用户的配额信息
 import { getUser } from '../../lib/auth.js';
-import { checkQuota } from '../../lib/quota.js';
+import { checkQuota, getProjectId } from '../../lib/quota.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -15,7 +15,8 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const quota = await checkQuota(env.DB, user.sub);
+    const projectId = getProjectId(env);
+    const quota = await checkQuota(env.DB, user.sub, projectId);
 
     // 获取套餐详情
     const plan = await env.DB.prepare(

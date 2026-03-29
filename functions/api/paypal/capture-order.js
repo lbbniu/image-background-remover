@@ -66,6 +66,7 @@ export async function onRequestPost(context) {
     // 5. 更新用户积分（bonus credits）+ 记录支付
     if (env.DB) {
       const priceCents = Math.round(parseFloat(amountPaid) * 100);
+      const projectId = env.PROJECT_ID || 'clearcut';
 
       await env.DB.batch([
         env.DB.prepare(`
@@ -73,13 +74,13 @@ export async function onRequestPost(context) {
           SET credits_bonus = credits_bonus + ?, 
               total_credits_purchased = total_credits_purchased + ?,
               updated_at = datetime('now')
-          WHERE user_id = ?
-        `).bind(creditsToAdd, creditsToAdd, user.sub),
+          WHERE user_id = ? AND project_id = ?
+        `).bind(creditsToAdd, creditsToAdd, user.sub, projectId),
 
         env.DB.prepare(`
-          INSERT INTO credit_purchases (user_id, package_name, credits_amount, price_paid_cents, payment_provider, payment_intent_id, status, created_at)
-          VALUES (?, ?, ?, ?, 'paypal', ?, 'completed', datetime('now'))
-        `).bind(user.sub, packLabel, creditsToAdd, priceCents, orderId),
+          INSERT INTO credit_purchases (user_id, package_name, credits_amount, price_paid_cents, payment_provider, payment_intent_id, status, project_id, created_at)
+          VALUES (?, ?, ?, ?, 'paypal', ?, 'completed', ?, datetime('now'))
+        `).bind(user.sub, packLabel, creditsToAdd, priceCents, orderId, projectId),
       ]);
     }
 

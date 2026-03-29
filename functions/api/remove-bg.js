@@ -1,5 +1,5 @@
 import { getUser } from '../lib/auth.js';
-import { checkQuota, deductCredit } from '../lib/quota.js';
+import { checkQuota, deductCredit, getProjectId } from '../lib/quota.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);
@@ -37,6 +37,8 @@ export async function onRequestPost(context) {
       );
     }
 
+    const projectId = getProjectId(env);
+
     // 2. 检查额度（需要登录才能处理）
     if (!env.DB) {
       return Response.json(
@@ -45,7 +47,7 @@ export async function onRequestPost(context) {
       );
     }
 
-    const quotaCheck = await checkQuota(env.DB, user.sub);
+    const quotaCheck = await checkQuota(env.DB, user.sub, projectId);
     if (!quotaCheck.allowed) {
       return Response.json({
         success: false,
@@ -76,7 +78,7 @@ export async function onRequestPost(context) {
     }
 
     // 3. 扣减额度
-    const deductResult = await deductCredit(env.DB, user.sub, jobId);
+    const deductResult = await deductCredit(env.DB, user.sub, jobId, projectId);
     if (!deductResult.success) {
       return Response.json({
         success: false,

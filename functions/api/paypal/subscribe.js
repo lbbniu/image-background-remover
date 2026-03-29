@@ -65,6 +65,7 @@ export async function onRequestPost(context) {
     if (env.DB) {
       const now = new Date();
       const resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+      const projectId = env.PROJECT_ID || 'clearcut';
 
       await env.DB.prepare(`
         UPDATE user_quotas 
@@ -76,8 +77,8 @@ export async function onRequestPost(context) {
             payment_provider = 'paypal',
             payment_subscription_id = ?,
             updated_at = datetime('now')
-        WHERE user_id = ?
-      `).bind(plan.planId, plan.credits, resetAt, subscriptionId, user.sub).run();
+        WHERE user_id = ? AND project_id = ?
+      `).bind(plan.planId, plan.credits, resetAt, subscriptionId, user.sub, projectId).run();
     }
 
     return Response.json({
