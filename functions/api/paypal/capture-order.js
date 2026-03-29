@@ -63,18 +63,24 @@ export async function onRequestPost(context) {
       );
     }
 
-    // 5. 更新用户积分（bonus credits）
+    // 5. 更新用户积分（bonus credits）+ 记录支付
     if (env.DB) {
-      await env.DB.prepare(`
-        UPDATE user_quotas SET credits_bonus = credits_bonus + ?, updated_at = datetime('now')
-        WHERE user_id = ?
-      `).bind(creditsToAdd, user.sub).run();
+      const priceCents = Math.round(parseFloat(amountPaid) * 100);
 
-      // 6. 记录支付
-      await env.DB.prepare(`
-        INSERT INTO payments (user_id, order_id, amount, currency, credits, status, type, created_at)
-        VALUES (?, ?, ?, 'USD', ?, 'completed', 'credit_pack', datetime('now'))
-      `).bind(user.sub, orderId, amountPaid, creditsToAdd).run();
+      await env.DB.batch([
+        env.DB.prepare(`
+          UPDATE user_quotas 
+          SET credits_bonus = credits_bonus + ?, 
+              total_credits_purchased = total_credits_purchased + ?,
+              updated_at = datetime('now')
+          WHERE user_id = ?
+        `).bind(creditsToAdd, creditsToAdd, user.sub),
+
+        env.DB.prepare(`
+          INSERT INTO credit_purchases (user_id, package_name, credits_amount, price_paid_cents, payment_provider, payment_intent_id, status, created_at)
+          VALUES (?, ?, ?, ?, 'paypal', ?, 'completed', datetime('now'))
+        `).bind(user.sub, packLabel, creditsToAdd, priceCents, orderId),
+      ]);
     }
 
     return Response.json({

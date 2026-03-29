@@ -68,16 +68,16 @@ export async function onRequestPost(context) {
 
       await env.DB.prepare(`
         UPDATE user_quotas 
-        SET plan_id = ?, credits_monthly = ?, credits_used_this_month = 0, 
-            credits_reset_at = ?, subscription_id = ?, updated_at = datetime('now')
+        SET plan_id = ?, 
+            credits_monthly = ?, 
+            credits_used_this_month = 0, 
+            credits_reset_at = ?,
+            subscription_status = 'active',
+            payment_provider = 'paypal',
+            payment_subscription_id = ?,
+            updated_at = datetime('now')
         WHERE user_id = ?
       `).bind(plan.planId, plan.credits, resetAt, subscriptionId, user.sub).run();
-
-      // 记录订阅
-      await env.DB.prepare(`
-        INSERT INTO payments (user_id, order_id, amount, currency, credits, status, type, created_at)
-        VALUES (?, ?, '0', 'USD', ?, 'active', 'subscription', datetime('now'))
-      `).bind(user.sub, subscriptionId, plan.credits).run();
     }
 
     return Response.json({

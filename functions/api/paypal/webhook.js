@@ -20,22 +20,21 @@ export async function onRequestPost(context) {
 
     switch (eventType) {
       case 'PAYMENT.CAPTURE.COMPLETED': {
-        // 一次性支付成功 — 充值积分
+        // 一次性支付成功 — 通常已由 capture-order API 处理
         const orderId = resource?.supplementary_data?.related_ids?.order_id || resource?.id;
         const amount = resource?.amount?.value;
 
-        // 查找对应的支付记录
         if (orderId) {
-          const payment = await env.DB.prepare(
-            'SELECT * FROM payments WHERE order_id = ? AND status = \'completed\''
+          const existing = await env.DB.prepare(
+            "SELECT * FROM credit_purchases WHERE payment_intent_id = ? AND status = 'completed'"
           ).bind(orderId).first();
 
-          // 如果已经通过 capture-order API 处理过，跳过
-          if (payment) {
+          if (existing) {
             console.log('Payment already processed via capture API:', orderId);
           } else {
-            console.log('Webhook: Payment capture completed', orderId, amount);
-            // 如果 capture-order API 没有处理（边缘情况），这里可以作为补偿
+            console.log('Webhook: Payment capture completed (not yet in DB)', orderId, amount);
+            // 边缘情况：capture-order API 没处理到，这里做补偿
+            // 由于没有 user context，仅记录日志，不自动充值
           }
         }
         break;
@@ -48,14 +47,19 @@ export async function onRequestPost(context) {
 
         console.log('Webhook: Subscription activated', subscriptionId, planId);
 
-        // 查找订阅对应的用户
         if (subscriptionId) {
           const quota = await env.DB.prepare(
-            'SELECT * FROM user_quotas WHERE subscription_id = ?'
+            'SELECT * FROM user_quotas WHERE payment_subscription_id = ?'
           ).bind(subscriptionId).first();
 
           if (quota) {
-            console.log('Subscription already activated for user:', quota.user_id);
+            // 确保订阅状态为 active
+            await env.DB.prepare(`
+              UPDATE user_quotas 
+              SET subscription_status = 'active', updated_at = datetime('now')
+              WHERE payment_subscription_id = ?
+            `).bind(subscriptionId).run();
+            console.log('Subscription confirmed active for user:', quota.user_id);
           } else {
             console.log('Subscription not yet linked to user, will be handled by subscribe API');
           }
@@ -68,14 +72,18 @@ export async function onRequestPost(context) {
       case 'BILLING.SUBSCRIPTION.EXPIRED': {
         // 订阅取消/暂停/过期 — 降级到免费版
         const subscriptionId = resource?.id;
-        console.log('Webhook: Subscription cancelled/suspended', subscriptionId);
+        console.log('Webhook: Subscription ended', eventType, subscriptionId);
 
         if (subscriptionId) {
-          // 找到该订阅对应的用户，降级为 free
           const result = await env.DB.prepare(`
             UPDATE user_quotas 
-            SET plan_id = 'free', credits_monthly = 10, subscription_id = NULL, updated_at = datetime('now')
-            WHERE subscription_id = ?
+            SET plan_id = 'free',
+                credits_monthly = 0,
+                subscription_status = 'inactive',
+                payment_subscription_id = NULL,
+                payment_provider = NULL,
+                updated_at = datetime('now')
+            WHERE payment_subscription_id = ?
           `).bind(subscriptionId).run();
 
           if (result.meta.changes > 0) {
@@ -86,9 +94,17 @@ export async function onRequestPost(context) {
       }
 
       case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED': {
-        // 订阅续费失败 — 仅记录日志，PayPal 会自动重试
+        // 订阅续费失败 — 标记状态，PayPal 会自动重试
         const subscriptionId = resource?.id;
         console.log('Webhook: Subscription payment failed', subscriptionId);
+
+        if (subscriptionId) {
+          await env.DB.prepare(`
+            UPDATE user_quotas 
+            SET subscription_status = 'past_due', updated_at = datetime('now')
+            WHERE payment_subscription_id = ?
+          `).bind(subscriptionId).run();
+        }
         break;
       }
 
