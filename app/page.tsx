@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import Navbar from './components/Navbar'
 import { useI18n } from './i18n'
 
@@ -12,50 +12,58 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [statusText, setStatusText] = useState('')
+  const [user, setUser] = useState<{ id: string; name: string; email: string; avatar: string } | null>(null)
+  const userChecked = useRef(false)
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      setError(t.home.errNotImage)
-      return
-    }
-
-    if (file.size > 20 * 1024 * 1024) {
-      setError(t.home.errTooLarge)
-      return
-    }
-
-    setError(null)
-    setLoading(true)
-    setUploadProgress(0)
-
-    try {
-      const base64 = await fileToBase64(file)
-      setOriginalImage(base64)
-      setUploadProgress(30)
-
-      const response = await fetch('/api/remove-bg', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 }),
+  // Check login status
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(res => res.json())
+      .then(data => {
+        if (data.authenticated) setUser(data.user)
       })
+      .catch(() => {})
+      .finally(() => { userChecked.current = true })
+  }, [])
 
-      setUploadProgress(70)
+  // Client-side background removal (browser AI model)
+  const removeBackgroundLocal = async (file: File): Promise<string> => {
+    setStatusText(t.home.modelLoading)
+    setUploadProgress(15)
+    const { removeBackground } = await import('@imgly/background-removal')
+    setStatusText(t.home.localProcessing)
+    setUploadProgress(30)
+    const blob = await removeBackground(file, {
+      progress: (key: string, current: number, total: number) => {
+        if (total > 0) {
+          const pct = Math.round((current / total) * 100)
+          setUploadProgress(30 + Math.round(pct * 0.65))
+        }
+      },
+    })
+    setUploadProgress(95)
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.readAsDataURL(blob)
+    })
+  }
 
-      const data = await response.json()
-
-      if (!data.success) {
-        throw new Error(data.error || t.home.errFailed)
-      }
-
-      setUploadProgress(100)
-      setTimeout(() => setResultImage(data.image), 300)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t.home.errFailed)
-    } finally {
-      setLoading(false)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t])
+  // Server-side background removal (API, uses credits)
+  const removeBackgroundAPI = async (base64: string): Promise<string> => {
+    setStatusText(t.home.processing)
+    setUploadProgress(30)
+    const response = await fetch('/api/remove-bg', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 }),
+    })
+    setUploadProgress(70)
+    const data = await response.json()
+    if (!data.success) throw new Error(data.error || t.home.errFailed)
+    return data.image
+  }
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -65,6 +73,53 @@ export default function Home() {
       reader.readAsDataURL(file)
     })
   }
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setError(t.home.errNotImage)
+      return
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setError(t.home.errTooLarge)
+      return
+    }
+
+    setError(null)
+    setLoading(true)
+    setUploadProgress(0)
+    setStatusText('')
+
+    try {
+      const base64 = await fileToBase64(file)
+      setOriginalImage(base64)
+      setUploadProgress(10)
+
+      let resultDataUrl: string
+
+      if (user) {
+        // Logged in → server API (uses credits)
+        resultDataUrl = await removeBackgroundAPI(base64)
+      } else {
+        // Not logged in → check free trial
+        const freeUsed = localStorage.getItem('clearcut_free_used')
+        if (freeUsed) {
+          throw new Error(t.home.freeTrialUsed)
+        }
+        // Client-side processing (free trial)
+        resultDataUrl = await removeBackgroundLocal(file)
+        localStorage.setItem('clearcut_free_used', '1')
+      }
+
+      setUploadProgress(100)
+      setTimeout(() => setResultImage(resultDataUrl), 300)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t.home.errFailed)
+    } finally {
+      setLoading(false)
+      setStatusText('')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, t])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -99,9 +154,9 @@ export default function Home() {
     setResultImage(null)
     setError(null)
     setUploadProgress(0)
+    setStatusText('')
   }
 
-  // Keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && resultImage) {
@@ -115,7 +170,6 @@ export default function Home() {
   return (
     <div className="min-h-screen py-8 px-4" onPaste={onPaste}>
       <div className="max-w-6xl mx-auto">
-        {/* Nav Bar */}
         <Navbar activePage="home" />
 
         {/* Header */}
@@ -149,7 +203,7 @@ export default function Home() {
               className={`upload-zone rounded-[22px] p-12 md:p-16 text-center cursor-pointer relative overflow-hidden ${
                 dragOver ? 'active' : ''
               }`}
-              onClick={() => document.getElementById('fileInput')?.click()}
+              onClick={() => !loading && document.getElementById('fileInput')?.click()}
             >
               <input
                 type="file"
@@ -163,13 +217,22 @@ export default function Home() {
                 <div className="relative z-10">
                   <div className="loading-ring mb-6"></div>
                   <p className="text-xl font-medium text-white mb-2">
-                    {t.home.processing}
+                    {statusText || t.home.processing}
                   </p>
                   <p className="text-gray-400 mb-6">
-                    {t.home.processingDesc}
+                    {statusText === t.home.modelLoading
+                      ? t.home.modelLoadingDesc
+                      : t.home.processingDesc}
                   </p>
+
+                  {/* Free trial badge for non-logged-in users */}
+                  {!user && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 mb-4 rounded-full bg-emerald-500/20 border border-emerald-500/30">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-xs text-emerald-400 font-medium">{t.home.freeTrialBadge}</span>
+                    </div>
+                  )}
                   
-                  {/* Progress bar */}
                   <div className="max-w-xs mx-auto">
                     <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
                       <div 
@@ -205,7 +268,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Decorative elements */}
               <div className="absolute top-4 left-4 w-20 h-20 border-l-2 border-t-2 border-indigo-500/20 rounded-tl-3xl" />
               <div className="absolute top-4 right-4 w-20 h-20 border-r-2 border-t-2 border-indigo-500/20 rounded-tr-3xl" />
               <div className="absolute bottom-4 left-4 w-20 h-20 border-l-2 border-b-2 border-indigo-500/20 rounded-bl-3xl" />
@@ -235,11 +297,7 @@ export default function Home() {
                 </div>
                 <div className="image-container rounded-xl overflow-hidden aspect-square">
                   {originalImage && (
-                    <img 
-                      src={originalImage} 
-                      alt={t.home.original}
-                      className="w-full h-full object-contain"
-                    />
+                    <img src={originalImage} alt={t.home.original} className="w-full h-full object-contain" />
                   )}
                 </div>
               </div>
@@ -251,11 +309,7 @@ export default function Home() {
                 </div>
                 <div className="image-container rounded-xl overflow-hidden aspect-square relative">
                   {resultImage && (
-                    <img 
-                      src={resultImage} 
-                      alt={t.home.processed}
-                      className="w-full h-full object-contain"
-                    />
+                    <img src={resultImage} alt={t.home.processed} className="w-full h-full object-contain" />
                   )}
                   <div className="absolute top-2 right-2 px-2 py-1 bg-cyan-500/20 backdrop-blur rounded text-xs text-cyan-400 border border-cyan-500/30">
                     {t.home.transparent}
@@ -283,10 +337,15 @@ export default function Home() {
         {error && (
           <div className="mt-6 glass-card rounded-xl p-4 border border-red-500/30">
             <div className="flex items-center gap-3 text-red-400">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p>{error}</p>
+              {error === t.home.freeTrialUsed && (
+                <a href="/api/auth/login" className="ml-auto shrink-0 btn-primary px-4 py-2 rounded-lg text-sm font-medium">
+                  {t.nav.login}
+                </a>
+              )}
             </div>
           </div>
         )}
