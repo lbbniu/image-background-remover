@@ -41,26 +41,24 @@ export default function Navbar({ activePage }: NavbarProps) {
   return (
     <nav className="relative mb-12">
       <div className="flex items-center justify-between">
-        {/* Left: Logo + Language Switch (always visible) */}
-        <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2" onClick={closeMenu}>
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              </svg>
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ClearCut</span>
-          </Link>
+        {/* Left: Logo */}
+        <Link href="/" className="flex items-center gap-2" onClick={closeMenu}>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+          </div>
+          <span className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ClearCut</span>
+        </Link>
+
+        {/* Center: Language Switch + Nav Links (desktop only) */}
+        <div className="hidden md:flex items-center gap-4">
           <button
             onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
             className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors"
           >
             {locale === 'zh' ? 'EN' : '中'}
           </button>
-        </div>
-
-        {/* Center: Nav Links (desktop only) */}
-        <div className="hidden md:flex items-center gap-4">
           {navLinks.map(link => (
             <Link
               key={link.key}
@@ -106,6 +104,14 @@ export default function Navbar({ activePage }: NavbarProps) {
               </a>
             )}
           </div>
+
+          {/* Mobile language switch (visible only on mobile) */}
+          <button
+            onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+            className="md:hidden px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 transition-colors"
+          >
+            {locale === 'zh' ? 'EN' : '中'}
+          </button>
 
           {/* Mobile hamburger */}
           <button
