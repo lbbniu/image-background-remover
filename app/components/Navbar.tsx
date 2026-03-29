@@ -133,7 +133,7 @@ export default function Navbar({ activePage }: NavbarProps) {
 
       {/* Mobile dropdown menu */}
       {menuOpen && (
-        <div className="md:hidden absolute top-full left-0 right-0 mt-3 glass-card rounded-2xl p-4 z-50 border border-white/10">
+        <div className="md:hidden absolute top-full left-0 right-0 mt-3 rounded-2xl p-4 z-50 border border-white/10 bg-[rgba(12,12,24,0.97)] backdrop-blur-xl shadow-2xl shadow-black/50">
           {/* Nav links */}
           <div className="flex flex-col gap-1 mb-4">
             {navLinks.map(link => (
