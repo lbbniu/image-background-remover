@@ -1,5 +1,5 @@
-import { getUser } from '../../lib/auth.js';
-import { checkQuota, deductCredit } from '../../lib/quota.js';
+import { getUser } from '../lib/auth.js';
+import { checkQuota, deductCredit } from '../lib/quota.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);
