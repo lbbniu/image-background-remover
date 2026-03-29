@@ -130,7 +130,7 @@ export default function Home() {
           <a href="/pricing" className="text-sm text-gray-400 hover:text-white transition-colors">Pricing</a>
           <div className="flex items-center gap-3">
           {user ? (
-            <div className="flex items-center gap-3 glass-card rounded-full px-4 py-2">
+            <a href="/profile" className="flex items-center gap-3 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors cursor-pointer">
               <img 
                 src={user.avatar} 
                 alt={user.name} 
@@ -138,13 +138,10 @@ export default function Home() {
                 referrerPolicy="no-referrer"
               />
               <span className="text-sm text-gray-300">{user.name}</span>
-              <a
-                href="/api/auth/logout"
-                className="text-xs text-gray-500 hover:text-red-400 transition-colors ml-2"
-              >
-                登出
-              </a>
-            </div>
+              <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
           ) : (
             <a
               href="/api/auth/login"
@@ -159,6 +156,7 @@ export default function Home() {
               <span className="text-sm text-gray-300">Google 登录</span>
             </a>
           )}
+          </div>
         </div>
 
         {/* Header */}

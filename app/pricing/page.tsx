@@ -148,6 +148,7 @@ export default function PricingPage() {
           <div className="flex items-center gap-4">
             <Link href="/" className="text-sm text-gray-400 hover:text-white transition-colors">Home</Link>
             <Link href="/pricing" className="text-sm text-white font-medium">Pricing</Link>
+            <Link href="/profile" className="text-sm text-gray-400 hover:text-white transition-colors">Profile</Link>
           </div>
         </nav>
 
