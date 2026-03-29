@@ -1,9 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Navbar from '../components/Navbar'
+import CreditPackCheckout from '../components/CreditPackCheckout'
+import SubscriptionCheckout from '../components/SubscriptionCheckout'
 import { useI18n } from '../i18n'
+
+// 订阅计划的 Plan ID 占位符（运行 init-paypal-plans.js 后替换）
+const SUBSCRIPTION_PLANS = {
+  pro_monthly: 'PLAN_PRO_MONTHLY_PLACEHOLDER',
+  pro_yearly: 'PLAN_PRO_YEARLY_PLACEHOLDER',
+  biz_monthly: 'PLAN_BIZ_MONTHLY_PLACEHOLDER',
+  biz_yearly: 'PLAN_BIZ_YEARLY_PLACEHOLDER',
+}
 
 const plansData = [
   {
@@ -26,6 +36,7 @@ const plansData = [
     ],
     ctaKey: 'freeCta' as const,
     ctaLink: '/api/auth/login',
+    subscriptionKey: null as null,
   },
   {
     id: 'pro',
@@ -48,6 +59,7 @@ const plansData = [
     ],
     ctaKey: 'proCta' as const,
     ctaLink: '#',
+    subscriptionKey: { monthly: 'pro_monthly' as const, yearly: 'pro_yearly' as const },
   },
   {
     id: 'business',
@@ -69,13 +81,14 @@ const plansData = [
     ],
     ctaKey: 'bizCta' as const,
     ctaLink: '#',
+    subscriptionKey: { monthly: 'biz_monthly' as const, yearly: 'biz_yearly' as const },
   },
 ]
 
 const creditPacks = [
-  { credits: 50, price: 4.99, perCredit: '0.10' },
-  { credits: 200, price: 14.99, perCredit: '0.075', badgeKey: 'packBest' as const },
-  { credits: 500, price: 29.99, perCredit: '0.06' },
+  { id: '50', credits: 50, price: 4.99, perCredit: '0.10' },
+  { id: '200', credits: 200, price: 14.99, perCredit: '0.075', badgeKey: 'packBest' as const },
+  { id: '500', credits: 500, price: 29.99, perCredit: '0.06' },
 ]
 
 // Feature text mapping with i18n support
@@ -119,14 +132,67 @@ function XIcon() {
   )
 }
 
+// Toast notification component
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error'; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000)
+    return () => clearTimeout(timer)
+  }, [onClose])
+
+  return (
+    <div className={`fixed top-6 right-6 z-50 px-6 py-4 rounded-xl shadow-lg backdrop-blur-sm border transition-all ${
+      type === 'success'
+        ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+        : 'bg-red-500/20 border-red-500/30 text-red-400'
+    }`}>
+      <div className="flex items-center gap-3">
+        <span className="text-lg">{type === 'success' ? '✓' : '✗'}</span>
+        <span className="text-sm font-medium">{message}</span>
+        <button onClick={onClose} className="ml-2 text-gray-400 hover:text-white">×</button>
+      </div>
+    </div>
+  )
+}
+
 export default function PricingPage() {
   const { t } = useI18n()
   const [annual, setAnnual] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
+  // Check login status
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(res => res.json())
+      .then(data => setIsLoggedIn(!!data.user))
+      .catch(() => setIsLoggedIn(false))
+  }, [])
+
+  const handleLoginRequired = () => {
+    window.location.href = '/api/auth/login'
+  }
+
+  const handleCreditPackSuccess = (credits: number) => {
+    setToast({
+      message: `${t.pricing.paymentSuccess || 'Payment successful!'} +${credits} ${t.pricing.packCredits}`,
+      type: 'success',
+    })
+  }
+
+  const handleSubscriptionSuccess = (plan: string) => {
+    setToast({
+      message: `${t.pricing.subscriptionSuccess || 'Subscription activated!'} — ${plan}`,
+      type: 'success',
+    })
+  }
 
   return (
     <div className="min-h-screen py-8 px-4">
       <div className="max-w-6xl mx-auto">
+
+        {/* Toast */}
+        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
         {/* Navigation */}
         <Navbar activePage="pricing" />
@@ -161,6 +227,12 @@ export default function PricingPage() {
           {plansData.map((plan) => {
             const price = annual ? plan.priceYearly : plan.priceMonthly
             const period = annual ? '/year' : '/month'
+            const subscriptionPlanKey = plan.subscriptionKey
+              ? (annual ? plan.subscriptionKey.yearly : plan.subscriptionKey.monthly)
+              : null
+            const subscriptionPlanId = subscriptionPlanKey
+              ? SUBSCRIPTION_PLANS[subscriptionPlanKey]
+              : null
 
             return (
               <div
@@ -201,16 +273,41 @@ export default function PricingPage() {
                   </p>
                 </div>
 
-                <a
-                  href={plan.ctaLink}
-                  className={`block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 ${
-                    plan.highlight
-                      ? 'btn-primary'
-                      : 'btn-secondary'
-                  }`}
-                >
-                  {t.pricing[plan.ctaKey]}
-                </a>
+                {/* CTA: Free plan → login link, paid plans → subscription */}
+                {plan.id === 'free' ? (
+                  <a
+                    href={plan.ctaLink}
+                    className="block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 btn-secondary"
+                  >
+                    {t.pricing[plan.ctaKey]}
+                  </a>
+                ) : isLoggedIn === false ? (
+                  <button
+                    onClick={handleLoginRequired}
+                    className={`block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 ${
+                      plan.highlight ? 'btn-primary' : 'btn-secondary'
+                    }`}
+                  >
+                    {t.pricing.loginToBuy || t.pricing[plan.ctaKey]}
+                  </button>
+                ) : subscriptionPlanId ? (
+                  <div className="mb-8">
+                    <SubscriptionCheckout
+                      planId={subscriptionPlanId}
+                      planName={t.pricing[plan.nameKey]}
+                      onSuccess={handleSubscriptionSuccess}
+                    />
+                  </div>
+                ) : (
+                  <a
+                    href={plan.ctaLink}
+                    className={`block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 ${
+                      plan.highlight ? 'btn-primary' : 'btn-secondary'
+                    }`}
+                  >
+                    {t.pricing[plan.ctaKey]}
+                  </a>
+                )}
 
                 <ul className="space-y-3">
                   {plan.features.map((feature, i) => (
@@ -245,9 +342,27 @@ export default function PricingPage() {
                 <p className="text-sm text-gray-400 mb-3">{t.pricing.packCredits}</p>
                 <p className="text-2xl font-bold text-white mb-1">${pack.price}</p>
                 <p className="text-xs text-gray-500 mb-4">${pack.perCredit} {t.pricing.packPer}</p>
-                <button className="w-full py-2 btn-secondary rounded-lg text-sm font-medium">
-                  {t.pricing.packBuy}
-                </button>
+
+                {/* PayPal checkout or login button */}
+                {isLoggedIn === false ? (
+                  <button
+                    onClick={handleLoginRequired}
+                    className="w-full py-2 btn-secondary rounded-lg text-sm font-medium"
+                  >
+                    {t.pricing.loginToBuy || t.pricing.packBuy}
+                  </button>
+                ) : isLoggedIn ? (
+                  <CreditPackCheckout
+                    packId={pack.id}
+                    credits={pack.credits}
+                    price={pack.price}
+                    onSuccess={handleCreditPackSuccess}
+                  />
+                ) : (
+                  <button className="w-full py-2 btn-secondary rounded-lg text-sm font-medium opacity-50" disabled>
+                    {t.pricing.packBuy}
+                  </button>
+                )}
               </div>
             ))}
           </div>

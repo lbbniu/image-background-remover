@@ -73,6 +73,13 @@ const zh = {
     packCredits: '额度',
     packPer: '每次',
     packBuy: '立即购买',
+    loginToBuy: '登录后购买',
+    paymentProcessing: '支付处理中...',
+    paymentSuccess: '支付成功！',
+    paymentFailed: '支付失败，请重试',
+    subscriptionSuccess: '订阅已激活！',
+    tryAgain: '重试',
+    comingSoon: '即将推出',
     faqTitle: '常见问题',
     faq: [
       { q: '什么是额度？', a: '一个额度 = 一次抠图。每次处理图片消耗一个额度。如果处理失败，额度会自动退回。' },

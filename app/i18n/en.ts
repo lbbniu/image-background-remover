@@ -73,6 +73,13 @@ const en = {
     packCredits: 'credits',
     packPer: 'per credit',
     packBuy: 'Buy Now',
+    loginToBuy: 'Sign in to Buy',
+    paymentProcessing: 'Processing...',
+    paymentSuccess: 'Payment successful!',
+    paymentFailed: 'Payment failed. Please try again.',
+    subscriptionSuccess: 'Subscription activated!',
+    tryAgain: 'Try Again',
+    comingSoon: 'Coming Soon',
     faqTitle: 'Frequently Asked Questions',
     faq: [
       { q: 'What is a credit?', a: 'One credit = one background removal. Each time you process an image, one credit is used. If processing fails, the credit is automatically refunded.' },
