@@ -9,10 +9,10 @@ import { useI18n } from '../i18n'
 
 // 订阅计划的 Plan ID 占位符（运行 init-paypal-plans.js 后替换）
 const SUBSCRIPTION_PLANS = {
-  pro_monthly: 'PLAN_PRO_MONTHLY_PLACEHOLDER',
-  pro_yearly: 'PLAN_PRO_YEARLY_PLACEHOLDER',
-  biz_monthly: 'PLAN_BIZ_MONTHLY_PLACEHOLDER',
-  biz_yearly: 'PLAN_BIZ_YEARLY_PLACEHOLDER',
+  pro_monthly: 'P-71M61162GE011714JNHEV2SI',
+  pro_yearly: 'P-4YK949015E500590JNHEV2SI',
+  biz_monthly: 'P-8P429838BA503293TNHEV2SQ',
+  biz_yearly: 'P-4W476401A4943870XNHEV2SQ',
 }
 
 const plansData = [
