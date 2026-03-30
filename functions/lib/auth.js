@@ -112,12 +112,20 @@ export function parseCookies(cookieHeader) {
   return cookies;
 }
 
-export function setAuthCookie(token, maxAge = 86400 * 7) {
-  return `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+export function setAuthCookie(token, maxAge = 86400 * 7, cookieDomain = '') {
+  let cookie = `session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+  if (cookieDomain) {
+    cookie += `; Domain=${cookieDomain}`;
+  }
+  return cookie;
 }
 
-export function clearAuthCookie() {
-  return 'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+export function clearAuthCookie(cookieDomain = '') {
+  let cookie = 'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+  if (cookieDomain) {
+    cookie += `; Domain=${cookieDomain}`;
+  }
+  return cookie;
 }
 
 export async function getUser(request, env) {

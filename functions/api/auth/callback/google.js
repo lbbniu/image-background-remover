@@ -86,7 +86,7 @@ export async function onRequestGet(context) {
       status: 302,
       headers: {
         'Location': `${url.origin}/`,
-        'Set-Cookie': setAuthCookie(jwt),
+        'Set-Cookie': setAuthCookie(jwt, undefined, env.COOKIE_DOMAIN || ''),
       },
     });
 

@@ -8,7 +8,7 @@ export async function onRequestGet(context) {
     status: 302,
     headers: {
       'Location': `${url.origin}/`,
-      'Set-Cookie': clearAuthCookie(),
+      'Set-Cookie': clearAuthCookie(context.env.COOKIE_DOMAIN || ''),
     },
   });
 }
