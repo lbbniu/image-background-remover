@@ -71,8 +71,8 @@ export async function onRequestPost(context) {
       await env.DB.batch([
         env.DB.prepare(`
           UPDATE user_quotas 
-          SET credits_bonus = credits_bonus + ?, 
-              total_credits_purchased = total_credits_purchased + ?,
+          SET credits_purchased = credits_purchased + ?, 
+              total_purchased = total_purchased + ?,
               updated_at = datetime('now')
           WHERE user_id = ? AND project_id = ?
         `).bind(creditsToAdd, creditsToAdd, user.sub, projectId),

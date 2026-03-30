@@ -34,7 +34,8 @@ export async function onRequestGet(context) {
       credits: {
         remaining: quota.remaining,
         monthlyRemaining: quota.monthlyRemaining,
-        bonusRemaining: quota.bonusRemaining,
+        purchasedRemaining: quota.purchasedRemaining,
+        giftedRemaining: quota.giftedRemaining,
         totalUsed: quota.totalUsed,
       },
     });

@@ -10,7 +10,7 @@ import { initUserQuota } from './quota.js';
 export async function findOrCreateOAuthUser(db, { provider, providerId, email, name, avatar }) {
   // 1. 查找已有的 OAuth 关联
   const existing = await db.prepare(
-    'SELECT oa.user_id FROM oauth_accounts oa JOIN users u ON oa.user_id = u.id WHERE oa.provider = ? AND oa.provider_id = ?'
+    'SELECT oa.user_id FROM oauth_accounts oa JOIN users u ON oa.user_id = u.id WHERE oa.provider = ? AND oa.external_id = ?'
   ).bind(provider, providerId).first();
 
   if (existing) {
@@ -19,7 +19,7 @@ export async function findOrCreateOAuthUser(db, { provider, providerId, email, n
       'UPDATE users SET name = ?, avatar = ?, last_login = datetime(\'now\') WHERE id = ?'
     ).bind(name, avatar, existing.user_id).run();
     await db.prepare(
-      'UPDATE oauth_accounts SET provider_name = ?, provider_avatar = ?, provider_email = ? WHERE provider = ? AND provider_id = ?'
+      'UPDATE oauth_accounts SET name = ?, avatar = ?, email = ? WHERE provider = ? AND external_id = ?'
     ).bind(name, avatar, email, provider, providerId).run();
     return existing.user_id;
   }
@@ -52,7 +52,7 @@ export async function findOrCreateOAuthUser(db, { provider, providerId, email, n
 
   // 4. 创建 OAuth 关联
   await db.prepare(
-    'INSERT INTO oauth_accounts (user_id, provider, provider_id, provider_email, provider_name, provider_avatar) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO oauth_accounts (user_id, provider, external_id, email, name, avatar) VALUES (?, ?, ?, ?, ?, ?)'
   ).bind(userId, provider, providerId, email, name, avatar).run();
 
   return userId;

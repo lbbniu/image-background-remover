@@ -74,8 +74,8 @@ export async function onRequestPost(context) {
             credits_used_this_month = 0, 
             credits_reset_at = ?,
             subscription_status = 'active',
-            payment_provider = 'paypal',
-            payment_subscription_id = ?,
+            subscription_provider = 'paypal',
+            subscription_external_id = ?,
             updated_at = datetime('now')
         WHERE user_id = ? AND project_id = ?
       `).bind(plan.planId, plan.credits, resetAt, subscriptionId, user.sub, projectId).run();
