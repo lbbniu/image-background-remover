@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Navbar from '../components/Navbar'
 import CreditPackCheckout from '../components/CreditPackCheckout'
 import SubscriptionCheckout from '../components/SubscriptionCheckout'
+import PayPalProvider from '../components/PayPalProvider'
 import { useI18n } from '../i18n'
 
 // 订阅计划的 Plan ID 占位符（运行 init-paypal-plans.js 后替换）
@@ -292,11 +293,13 @@ export default function PricingPage() {
                   </button>
                 ) : subscriptionPlanId ? (
                   <div className="mb-8">
-                    <SubscriptionCheckout
-                      planId={subscriptionPlanId}
-                      planName={t.pricing[plan.nameKey]}
-                      onSuccess={handleSubscriptionSuccess}
-                    />
+                    <PayPalProvider intent="subscription">
+                      <SubscriptionCheckout
+                        planId={subscriptionPlanId}
+                        planName={t.pricing[plan.nameKey]}
+                        onSuccess={handleSubscriptionSuccess}
+                      />
+                    </PayPalProvider>
                   </div>
                 ) : (
                   <a
@@ -352,12 +355,14 @@ export default function PricingPage() {
                     {t.pricing.loginToBuy || t.pricing.packBuy}
                   </button>
                 ) : isLoggedIn ? (
-                  <CreditPackCheckout
-                    packId={pack.id}
-                    credits={pack.credits}
-                    price={pack.price}
-                    onSuccess={handleCreditPackSuccess}
-                  />
+                  <PayPalProvider intent="capture">
+                    <CreditPackCheckout
+                      packId={pack.id}
+                      credits={pack.credits}
+                      price={pack.price}
+                      onSuccess={handleCreditPackSuccess}
+                    />
+                  </PayPalProvider>
                 ) : (
                   <button className="w-full py-2 btn-secondary rounded-lg text-sm font-medium opacity-50" disabled>
                     {t.pricing.packBuy}

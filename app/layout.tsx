@@ -2,7 +2,6 @@
 
 import './globals.css'
 import { I18nProvider } from './i18n'
-import PayPalProvider from './components/PayPalProvider'
 
 export default function RootLayout({
   children,
@@ -27,9 +26,7 @@ export default function RootLayout({
         {/* Main content */}
         <div className="relative z-10">
           <I18nProvider>
-            <PayPalProvider>
-              {children}
-            </PayPalProvider>
+            {children}
           </I18nProvider>
         </div>
       </body>
