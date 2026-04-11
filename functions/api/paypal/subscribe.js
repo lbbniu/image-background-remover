@@ -5,7 +5,7 @@ import { activateSubscription, getProjectId } from '../../lib/quota.js';
 function getPlanFromEnv(env, subscriptionPlanId) {
   if (subscriptionPlanId === env.PAYPAL_PLAN_PRO_MONTHLY ||
       subscriptionPlanId === env.PAYPAL_PLAN_PRO_YEARLY) {
-    return { planId: 'pro', credits: 200 };
+    return { planId: 'pro', credits: 300 };
   }
   if (subscriptionPlanId === env.PAYPAL_PLAN_BIZ_MONTHLY ||
       subscriptionPlanId === env.PAYPAL_PLAN_BIZ_YEARLY) {
@@ -52,9 +52,23 @@ export async function onRequestPost(context) {
 
     if (env.DB) {
       const projectId = getProjectId(env);
+
+      // 防止重复订阅：已有活跃订阅时拒绝（同一 subscriptionId 重入除外）
+      const existing = await env.DB.prepare(
+        `SELECT subscription_external_id FROM user_quotas
+         WHERE user_id = ? AND project_id = ? AND subscription_status = 'active'`
+      ).bind(user.sub, projectId).first();
+
+      if (existing && existing.subscription_external_id !== subscriptionId) {
+        return Response.json(
+          { success: false, error: 'Active subscription already exists', code: 'ALREADY_SUBSCRIBED' },
+          { status: 409 }
+        );
+      }
+
       await activateSubscription(
-        env.DB, user.sub, projectId, 
-        plan.planId, 'paypal', subscriptionId, 
+        env.DB, user.sub, projectId,
+        plan.planId, 'paypal', subscriptionId,
         plan.credits
       );
     }

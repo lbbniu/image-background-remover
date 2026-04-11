@@ -1,5 +1,6 @@
 // PayPal Webhook 处理器（适配新表结构）
 
+import { verifyWebhookSignature } from '../../lib/paypal.js';
 import { activateSubscription, cancelSubscription, getProjectId } from '../../lib/quota.js';
 
 export async function onRequestPost(context) {
@@ -7,7 +8,19 @@ export async function onRequestPost(context) {
   const projectId = getProjectId(env);
 
   try {
-    const body = await request.json();
+    // 必须先以 text 读取原始 body，保留字节顺序用于验签
+    const rawBody = await request.text();
+
+    // 验证签名（跳过本地开发环境）
+    if (env.PAYPAL_WEBHOOK_ID) {
+      const isValid = await verifyWebhookSignature(env, request, rawBody);
+      if (!isValid) {
+        console.warn('PayPal webhook signature verification failed');
+        return new Response('Forbidden', { status: 403 });
+      }
+    }
+
+    const body = JSON.parse(rawBody);
     const eventType = body.event_type;
     const resource = body.resource;
 
@@ -96,8 +109,8 @@ export async function onRequestPost(context) {
 
         if (nextBillingTime) {
           await env.DB.prepare(`
-            UPDATE user_quotas 
-            SET period_end = ?, subscription_status = 'active', updated_at = datetime('now')
+            UPDATE user_quotas
+            SET period_end = ?, period_used = 0, subscription_status = 'active', updated_at = datetime('now')
             WHERE subscription_external_id = ? AND project_id = ?
           `).bind(nextBillingTime, subscriptionId, projectId).run();
         }

@@ -106,40 +106,57 @@ export async function checkQuota(db, userId, projectId) {
 
 /**
  * 扣减一次额度（优先级：月度订阅 > 购买积分 > 赠送积分）
+ * 使用原子 UPDATE + WHERE 条件防止竞态条件，以受影响行数判断是否成功扣减。
  */
 export async function deductCredit(db, userId, jobId, projectId) {
-  const quotaCheck = await checkQuota(db, userId, projectId);
-  if (!quotaCheck.allowed) {
-    return { success: false, error: 'no_credits', remaining: 0 };
+  // 先触发订阅周期检查（不依赖其 remaining 值做决策）
+  const quota = await db.prepare(
+    'SELECT * FROM user_quotas WHERE user_id = ? AND project_id = ?'
+  ).bind(userId, projectId).first();
+
+  if (!quota) {
+    await initUserQuota(db, userId, projectId);
+  } else {
+    await checkAndUpdateSubscription(db, quota, userId, projectId);
   }
 
   let source = 'monthly';
+  let result;
 
-  if (quotaCheck.monthlyRemaining > 0) {
-    await db.prepare(`
-      UPDATE user_quotas 
-      SET period_used = period_used + 1, total_used = total_used + 1, updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
-    `).bind(userId, projectId).run();
-  } else if (quotaCheck.purchasedRemaining > 0) {
+  // 原子扣减月度额度
+  result = await db.prepare(`
+    UPDATE user_quotas
+    SET period_used = period_used + 1, total_used = total_used + 1, updated_at = datetime('now')
+    WHERE user_id = ? AND project_id = ? AND (credits_monthly - period_used) > 0
+  `).bind(userId, projectId).run();
+
+  if (!result.meta?.changes) {
+    // 月度额度不足，尝试购买积分
     source = 'purchased';
-    await db.prepare(`
-      UPDATE user_quotas 
+    result = await db.prepare(`
+      UPDATE user_quotas
       SET credits_purchased = credits_purchased - 1, total_used = total_used + 1, updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
+      WHERE user_id = ? AND project_id = ? AND credits_purchased > 0
     `).bind(userId, projectId).run();
-  } else {
+  }
+
+  if (!result.meta?.changes) {
+    // 购买积分不足，尝试赠送积分
     source = 'gifted';
-    await db.prepare(`
-      UPDATE user_quotas 
+    result = await db.prepare(`
+      UPDATE user_quotas
       SET credits_gifted = credits_gifted - 1, total_used = total_used + 1, updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
+      WHERE user_id = ? AND project_id = ? AND credits_gifted > 0
     `).bind(userId, projectId).run();
+  }
+
+  if (!result.meta?.changes) {
+    return { success: false, error: 'no_credits', remaining: 0 };
   }
 
   // 记录使用日志
   await db.prepare(`
-    INSERT INTO usage_logs (user_id, job_id, credits_used, source, status, project_id) 
+    INSERT INTO usage_logs (user_id, job_id, credits_used, source, status, project_id)
     VALUES (?, ?, 1, ?, 'success', ?)
   `).bind(userId, jobId, source, projectId).run();
 

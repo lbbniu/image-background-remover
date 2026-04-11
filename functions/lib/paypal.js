@@ -203,6 +203,61 @@ export async function createSubscription(env, planId) {
 }
 
 /**
+ * 验证 PayPal Webhook 签名（调用 PayPal 官方验签 API）
+ *
+ * 必须传入原始请求体字符串（rawBody），不可经过 JSON.parse → JSON.stringify 重序列化，
+ * 否则字节变化会导致验签失败。
+ *
+ * 需要在 Cloudflare env 中配置 PAYPAL_WEBHOOK_ID。
+ *
+ * @returns {Promise<boolean>} true = 签名合法
+ */
+export async function verifyWebhookSignature(env, request, rawBody) {
+  const webhookId = env.PAYPAL_WEBHOOK_ID;
+  if (!webhookId) {
+    throw new Error('PAYPAL_WEBHOOK_ID not configured');
+  }
+
+  const transmissionId = request.headers.get('PAYPAL-TRANSMISSION-ID');
+  const transmissionTime = request.headers.get('PAYPAL-TRANSMISSION-TIME');
+  const certUrl = request.headers.get('PAYPAL-CERT-URL');
+  const authAlgo = request.headers.get('PAYPAL-AUTH-ALGO');
+  const transmissionSig = request.headers.get('PAYPAL-TRANSMISSION-SIG');
+
+  if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig) {
+    return false;
+  }
+
+  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
+  const accessToken = await getAccessToken(env);
+
+  const response = await fetch(`${apiBase}/v1/notifications/verify-webhook-signature`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      auth_algo: authAlgo,
+      cert_url: certUrl,
+      transmission_id: transmissionId,
+      transmission_sig: transmissionSig,
+      transmission_time: transmissionTime,
+      webhook_id: webhookId,
+      webhook_event: JSON.parse(rawBody),
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`PayPal verify webhook failed: ${response.status} ${error}`);
+  }
+
+  const data = await response.json();
+  return data.verification_status === 'SUCCESS';
+}
+
+/**
  * 获取订阅详情
  */
 export async function getSubscriptionDetails(env, subscriptionId) {
