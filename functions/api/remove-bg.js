@@ -1,5 +1,5 @@
 import { getUser } from '../lib/auth.js';
-import { checkQuota, deductCredit, getProjectId } from '../lib/quota.js';
+import { consumeCredit, getProjectId, getUserCreditBalance, updateUsageLog } from '../lib/quota.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);
@@ -47,7 +47,7 @@ export async function onRequestPost(context) {
       );
     }
 
-    const quotaCheck = await checkQuota(env.DB, user.sub, projectId);
+    const quotaCheck = await getUserCreditBalance(env.DB, { userId: user.sub, projectId });
     if (!quotaCheck.allowed) {
       return Response.json({
         success: false,
@@ -78,7 +78,7 @@ export async function onRequestPost(context) {
     }
 
     // 3. 扣减额度
-    const deductResult = await deductCredit(env.DB, user.sub, jobId, projectId);
+    const deductResult = await consumeCredit(env.DB, { userId: user.sub, projectId, jobId });
     if (!deductResult.success) {
       return Response.json({
         success: false,
@@ -111,9 +111,7 @@ export async function onRequestPost(context) {
     if (!response.ok) {
       // API 失败，尝试退还额度
       try {
-        await env.DB.prepare(`
-          UPDATE usage_logs SET status = 'refunded' WHERE job_id = ?
-        `).bind(jobId).run();
+        await updateUsageLog(env.DB, { jobId, status: 'refunded' });
       } catch (e) {
         console.error('Failed to refund credit:', e);
       }
@@ -127,9 +125,7 @@ export async function onRequestPost(context) {
 
     // 更新使用日志的处理时间
     try {
-      await env.DB.prepare(`
-        UPDATE usage_logs SET processing_time_ms = ? WHERE job_id = ?
-      `).bind(processingTime, jobId).run();
+      await updateUsageLog(env.DB, { jobId, processingTimeMs: processingTime });
     } catch (e) {
       console.error('Failed to update usage log:', e);
     }

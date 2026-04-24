@@ -12,7 +12,7 @@
  *   node scripts/setup-paypal-webhook.js
  */
 
-const WEBHOOK_URL = 'https://ibr.zwlm.cc/api/paypal/webhook';
+const WEBHOOK_URL = 'https://ibr.zwlm.cc/api/webhooks/paypal';
 const CF_PROJECT = 'clearcut';
 
 const LISTEN_EVENTS = [

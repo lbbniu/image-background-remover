@@ -88,16 +88,16 @@ export default function SubscriptionCheckout({ planId, planName, onSuccess }: Su
         onApprove={async (data) => {
           setStatus('processing')
           try {
-            const res = await fetch('/api/paypal/subscribe', {
+            const res = await fetch('/api/subscriptions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ subscriptionId: data.subscriptionID }),
+              body: JSON.stringify({ provider: 'paypal', externalId: data.subscriptionID }),
             })
             const result = await res.json()
 
             if (!result.success) {
               if (result.code === 'LOGIN_REQUIRED') {
-                window.location.href = '/api/auth/login'
+                window.location.href = '/api/oauth/google/authorization'
                 return
               }
               throw new Error(result.error || 'Subscription activation failed')

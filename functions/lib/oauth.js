@@ -1,5 +1,8 @@
 // 通用 OAuth 用户处理（支持 Google / GitHub / 微信等多平台）
-import { initUserQuota } from './quota.js';
+import { and, eq, sql } from 'drizzle-orm';
+import { getDb } from '../../db/client.js';
+import { oauthAccounts, users } from '../../db/schema.js';
+import { ensureUserQuota } from './quota.js';
 
 /**
  * 查找或创建 OAuth 用户
@@ -7,53 +10,72 @@ import { initUserQuota } from './quota.js';
  * - 同 email 已有账号 → 自动关联，返回 userId
  * - 全新用户 → 创建用户 + OAuth 关联，返回 userId
  */
-export async function findOrCreateOAuthUser(db, { provider, providerId, email, name, avatar }) {
+export async function findOrCreateOAuthUser(db, { platform, externalId, email, name, avatar, projectId }) {
+  const orm = getDb(db);
+
   // 1. 查找已有的 OAuth 关联
-  const existing = await db.prepare(
-    'SELECT oa.user_id FROM oauth_accounts oa JOIN users u ON oa.user_id = u.id WHERE oa.provider = ? AND oa.external_id = ?'
-  ).bind(provider, providerId).first();
+  const existing = await orm
+    .select({ userId: oauthAccounts.userId })
+    .from(oauthAccounts)
+    .innerJoin(users, eq(oauthAccounts.userId, users.id))
+    .where(and(eq(oauthAccounts.platform, platform), eq(oauthAccounts.externalId, externalId)))
+    .get();
 
   if (existing) {
     // 更新用户信息
-    await db.prepare(
-      'UPDATE users SET name = ?, avatar = ?, last_login = datetime(\'now\') WHERE id = ?'
-    ).bind(name, avatar, existing.user_id).run();
-    await db.prepare(
-      'UPDATE oauth_accounts SET name = ?, avatar = ?, email = ? WHERE provider = ? AND external_id = ?'
-    ).bind(name, avatar, email, provider, providerId).run();
-    return existing.user_id;
+    await orm
+      .update(users)
+      .set({ name, avatar, updatedAt: sql`datetime('now')`, lastLogin: sql`datetime('now')` })
+      .where(eq(users.id, existing.userId))
+      .run();
+    await orm
+      .update(oauthAccounts)
+      .set({ name, avatar, email, updatedAt: sql`datetime('now')` })
+      .where(and(eq(oauthAccounts.platform, platform), eq(oauthAccounts.externalId, externalId)))
+      .run();
+    return existing.userId;
   }
 
   // 2. 检查是否有相同 email 的用户（自动关联）
   let userId;
   if (email) {
-    const userByEmail = await db.prepare(
-      'SELECT id FROM users WHERE email = ?'
-    ).bind(email).first();
+    const userByEmail = await orm
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .get();
     if (userByEmail) {
       userId = userByEmail.id;
-      await db.prepare(
-        'UPDATE users SET name = COALESCE(?, name), avatar = COALESCE(?, avatar), last_login = datetime(\'now\') WHERE id = ?'
-      ).bind(name, avatar, userId).run();
+      await orm
+        .update(users)
+        .set({
+          name: sql`COALESCE(${name}, ${users.name})`,
+          avatar: sql`COALESCE(${avatar}, ${users.avatar})`,
+          updatedAt: sql`datetime('now')`,
+          lastLogin: sql`datetime('now')`,
+        })
+        .where(eq(users.id, userId))
+        .run();
     }
   }
 
   // 3. 全新用户 → 创建
-  let isNewUser = false;
   if (!userId) {
-    isNewUser = true;
-    const result = await db.prepare(
-      'INSERT INTO users (email, name, avatar) VALUES (?, ?, ?)'
-    ).bind(email, name, avatar).run();
-    userId = result.meta.last_row_id;
+    const result = await orm
+      .insert(users)
+      .values({ email, name, avatar })
+      .returning({ id: users.id })
+      .get();
+    userId = result.id;
     // 新用户送3次额度
-    await initUserQuota(db, userId);
+    await ensureUserQuota(db, { userId, projectId });
   }
 
   // 4. 创建 OAuth 关联
-  await db.prepare(
-    'INSERT INTO oauth_accounts (user_id, provider, external_id, email, name, avatar) VALUES (?, ?, ?, ?, ?, ?)'
-  ).bind(userId, provider, providerId, email, name, avatar).run();
+  await orm
+    .insert(oauthAccounts)
+    .values({ userId, platform, externalId, email, name, avatar })
+    .run();
 
   return userId;
 }

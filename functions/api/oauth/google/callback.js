@@ -1,6 +1,6 @@
-// Google OAuth 回调处理
 import { signJWT, setAuthCookie } from '../../../lib/auth.js';
 import { findOrCreateOAuthUser } from '../../../lib/oauth.js';
+import { getProjectId } from '../../../lib/quota.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -14,10 +14,9 @@ export async function onRequestGet(context) {
 
   let step = 'init';
   try {
-    const redirectUri = `${url.origin}/api/auth/callback/google`;
+    const redirectUri = `${url.origin}/api/oauth/google/callback`;
     step = 'token_exchange';
 
-    // 1. 用 authorization code 换取 tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -39,7 +38,6 @@ export async function onRequestGet(context) {
     const tokens = await tokenRes.json();
     step = 'userinfo';
 
-    // 2. 获取用户信息
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
@@ -51,17 +49,16 @@ export async function onRequestGet(context) {
     const googleUser = await userRes.json();
     step = 'db';
 
-    // 3. 查找或创建用户（通用多平台逻辑）
     let userId = googleUser.id;
-    const db = env.DB;
-    if (db) {
+    if (env.DB) {
       try {
-        userId = await findOrCreateOAuthUser(db, {
-          provider: 'google',
-          providerId: googleUser.id,
+        userId = await findOrCreateOAuthUser(env.DB, {
+          platform: 'google',
+          externalId: googleUser.id,
           email: googleUser.email,
           name: googleUser.name,
           avatar: googleUser.picture,
+          projectId: getProjectId(env),
         });
       } catch (dbErr) {
         console.error('D1 error (non-fatal):', dbErr);
@@ -69,8 +66,6 @@ export async function onRequestGet(context) {
     }
 
     step = 'jwt';
-
-    // 4. 签发 JWT
     const secret = env.JWT_SECRET || 'clearcut-default-secret-change-me';
     const jwt = await signJWT({
       sub: String(userId),
@@ -79,9 +74,6 @@ export async function onRequestGet(context) {
       avatar: googleUser.picture,
     }, secret);
 
-    step = 'cookie';
-
-    // 5. 设置 cookie 并重定向回首页
     return new Response(null, {
       status: 302,
       headers: {
@@ -89,13 +81,12 @@ export async function onRequestGet(context) {
         'Set-Cookie': setAuthCookie(jwt, undefined, env.COOKIE_DOMAIN || ''),
       },
     });
-
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`OAuth callback error at step [${step}]:`, err);
     return Response.redirect(
       `${url.origin}/?error=server_error&step=${step}&detail=${encodeURIComponent(msg.substring(0, 200))}`,
-      302
+      302,
     );
   }
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import Image from 'next/image'
 import Navbar from './components/Navbar'
 import { useI18n } from './i18n'
 
@@ -18,7 +19,7 @@ export default function Home() {
 
   // Check login status
   useEffect(() => {
-    fetch('/api/auth/me')
+    fetch('/api/auth/session')
       .then(res => res.json())
       .then(data => {
         if (data.authenticated) setUser(data.user)
@@ -297,7 +298,13 @@ export default function Home() {
                 </div>
                 <div className="image-container rounded-xl overflow-hidden aspect-square">
                   {originalImage && (
-                    <img src={originalImage} alt={t.home.original} className="w-full h-full object-contain" />
+                    <Image
+                      src={originalImage}
+                      alt={t.home.original}
+                      fill
+                      unoptimized
+                      className="object-contain"
+                    />
                   )}
                 </div>
               </div>
@@ -309,7 +316,13 @@ export default function Home() {
                 </div>
                 <div className="image-container rounded-xl overflow-hidden aspect-square relative">
                   {resultImage && (
-                    <img src={resultImage} alt={t.home.processed} className="w-full h-full object-contain" />
+                    <Image
+                      src={resultImage}
+                      alt={t.home.processed}
+                      fill
+                      unoptimized
+                      className="object-contain"
+                    />
                   )}
                   <div className="absolute top-2 right-2 px-2 py-1 bg-cyan-500/20 backdrop-blur rounded text-xs text-cyan-400 border border-cyan-500/30">
                     {t.home.transparent}
@@ -342,7 +355,7 @@ export default function Home() {
               </svg>
               <p>{error}</p>
               {error === t.home.freeTrialUsed && (
-                <a href="/api/auth/login" className="ml-auto shrink-0 btn-primary px-4 py-2 rounded-lg text-sm font-medium">
+                <a href="/api/oauth/google/authorization" className="ml-auto shrink-0 btn-primary px-4 py-2 rounded-lg text-sm font-medium">
                   {t.nav.login}
                 </a>
               )}

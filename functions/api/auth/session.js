@@ -1,10 +1,9 @@
-// 获取当前登录用户信息
-import { getUser } from '../../lib/auth.js';
+import { clearAuthCookie, getUser } from '../../lib/auth.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
-
   const user = await getUser(request, env);
+
   if (!user) {
     return Response.json({ authenticated: false }, { status: 401 });
   }
@@ -18,4 +17,15 @@ export async function onRequestGet(context) {
       avatar: user.avatar,
     },
   });
+}
+
+export async function onRequestDelete(context) {
+  return Response.json(
+    { authenticated: false },
+    {
+      headers: {
+        'Set-Cookie': clearAuthCookie(context.env.COOKIE_DOMAIN || ''),
+      },
+    },
+  );
 }

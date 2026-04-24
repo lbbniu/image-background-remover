@@ -36,7 +36,7 @@ const plansData = [
       { textKey: 'api', included: false },
     ],
     ctaKey: 'freeCta' as const,
-    ctaLink: '/api/auth/login',
+    ctaLink: '/api/oauth/google/authorization',
     subscriptionKey: null as null,
   },
   {
@@ -164,14 +164,14 @@ export default function PricingPage() {
 
   // Check login status
   useEffect(() => {
-    fetch('/api/auth/me')
+    fetch('/api/auth/session')
       .then(res => res.json())
       .then(data => setIsLoggedIn(!!data.user))
       .catch(() => setIsLoggedIn(false))
   }, [])
 
   const handleLoginRequired = () => {
-    window.location.href = '/api/auth/login'
+    window.location.href = '/api/oauth/google/authorization'
   }
 
   const handleCreditPackSuccess = (credits: number) => {

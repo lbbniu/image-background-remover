@@ -7,11 +7,11 @@ import { useI18n } from '../i18n'
 interface CreditPackCheckoutProps {
   packId: string
   credits: number
-  price: number
+  price?: number
   onSuccess?: (credits: number) => void
 }
 
-export default function CreditPackCheckout({ packId, credits, price, onSuccess }: CreditPackCheckoutProps) {
+export default function CreditPackCheckout({ packId, credits, onSuccess }: CreditPackCheckoutProps) {
   const { t } = useI18n()
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
@@ -62,7 +62,7 @@ export default function CreditPackCheckout({ packId, credits, price, onSuccess }
         createOrder={async () => {
           setStatus('processing')
           try {
-            const res = await fetch('/api/paypal/create-order', {
+            const res = await fetch('/api/credit-purchases/paypal-orders', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ packId }),
@@ -71,7 +71,7 @@ export default function CreditPackCheckout({ packId, credits, price, onSuccess }
 
             if (!data.success) {
               if (data.code === 'LOGIN_REQUIRED') {
-                window.location.href = '/api/auth/login'
+                window.location.href = '/api/oauth/google/authorization'
                 throw new Error('Login required')
               }
               throw new Error(data.error || 'Failed to create order')
@@ -88,10 +88,9 @@ export default function CreditPackCheckout({ packId, credits, price, onSuccess }
         onApprove={async (data) => {
           setStatus('processing')
           try {
-            const res = await fetch('/api/paypal/capture-order', {
+            const res = await fetch(`/api/credit-purchases/paypal-orders/${data.orderID}/capture`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ orderId: data.orderID }),
             })
             const result = await res.json()
 
