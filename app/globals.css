@@ -161,6 +161,27 @@ body::before {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+/* PayPal injects iframes and mutates their inline size during click/approval.
+   Keep the checkout area stable so pricing cards do not jump. */
+.paypal-button-container {
+  overflow: hidden;
+}
+
+.paypal-subscription-button {
+  min-height: 45px;
+  height: 45px;
+}
+
+.paypal-credit-button {
+  min-height: 35px;
+  height: 35px;
+}
+
+.paypal-button-container iframe {
+  display: block;
+  max-width: 100%;
+}
+
 /* Upload zone */
 .upload-zone {
   border: 2px dashed rgba(99, 102, 241, 0.3);

@@ -49,8 +49,9 @@ export default function CreditPackCheckout({ packId, credits, onSuccess }: Credi
   }
 
   return (
-    <div className="w-full paypal-button-container">
+    <div className="w-full paypal-button-container paypal-credit-button">
       <PayPalButtons
+        fundingSource="paypal"
         style={{
           layout: 'horizontal',
           color: 'silver',
@@ -60,7 +61,6 @@ export default function CreditPackCheckout({ packId, credits, onSuccess }: Credi
           tagline: false,
         }}
         createOrder={async () => {
-          setStatus('processing')
           try {
             const res = await fetch('/api/credit-purchases/paypal-orders', {
               method: 'POST',

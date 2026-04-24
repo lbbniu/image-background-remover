@@ -23,6 +23,7 @@ function GoogleIcon() {
 export default function Navbar({ activePage }: NavbarProps) {
   const { locale, t, setLocale } = useI18n()
   const [user, setUser] = useState<{ id: string; name: string; email: string; avatar: string } | null>(null)
+  const [sessionLoaded, setSessionLoaded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function Navbar({ activePage }: NavbarProps) {
         if (data.authenticated) setUser(data.user)
       })
       .catch(() => {})
+      .finally(() => setSessionLoaded(true))
   }, [])
 
   const closeMenu = () => setMenuOpen(false)
@@ -81,7 +83,9 @@ export default function Navbar({ activePage }: NavbarProps) {
             >
               {locale === 'zh' ? 'EN' : '中'}
             </button>
-            {user ? (
+            {!sessionLoaded ? (
+              <div className="glass-card rounded-full px-5 py-2.5 w-36 h-11 animate-pulse" />
+            ) : user ? (
               <Link
                 href="/profile"
                 className="flex items-center gap-3 glass-card rounded-full px-4 py-2 hover:border-indigo-500/30 transition-colors cursor-pointer"
@@ -159,7 +163,9 @@ export default function Navbar({ activePage }: NavbarProps) {
           </div>
 
           <div className="border-t border-white/10 pt-4 px-4">
-            {user ? (
+            {!sessionLoaded ? (
+              <div className="glass-card rounded-full px-4 py-2 w-32 h-10 animate-pulse" />
+            ) : user ? (
               <Link
                 href="/profile"
                 onClick={closeMenu}

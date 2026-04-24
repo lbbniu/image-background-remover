@@ -16,7 +16,7 @@ export default function SubscriptionCheckout({ planId, planName, onSuccess }: Su
   const [message, setMessage] = useState('')
 
   // Plan ID 是占位符时，显示 Coming Soon
-  const isPlaceholder = planId.includes('PLACEHOLDER')
+  const isPlaceholder = !planId || planId.includes('PLACEHOLDER')
 
   if (isPlaceholder) {
     return (
@@ -62,8 +62,9 @@ export default function SubscriptionCheckout({ planId, planName, onSuccess }: Su
   }
 
   return (
-    <div className="w-full paypal-button-container">
+    <div className="w-full paypal-button-container paypal-subscription-button">
       <PayPalButtons
+        fundingSource="paypal"
         style={{
           layout: 'horizontal',
           color: 'gold',
@@ -91,7 +92,7 @@ export default function SubscriptionCheckout({ planId, planName, onSuccess }: Su
             const res = await fetch('/api/subscriptions', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: 'paypal', externalId: data.subscriptionID }),
+              body: JSON.stringify({ platform: 'paypal', externalId: data.subscriptionID }),
             })
             const result = await res.json()
 

@@ -1,3 +1,5 @@
+import { getOAuthRedirectUri } from '../../../lib/url.js';
+
 export async function onRequestGet(context) {
   const { env, request } = context;
 
@@ -6,8 +8,7 @@ export async function onRequestGet(context) {
     return Response.json({ error: 'Google OAuth not configured' }, { status: 500 });
   }
 
-  const url = new URL(request.url);
-  const redirectUri = `${url.origin}/api/oauth/google/callback`;
+  const redirectUri = getOAuthRedirectUri(env, request, 'google');
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

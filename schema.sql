@@ -41,12 +41,28 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   price_yearly INTEGER,             -- 年付价格（美分）
   credits_monthly INTEGER,          -- 每月额度
   features JSON,                    -- 功能列表 ["hd_output", "batch", "api_access"]
-  stripe_price_id TEXT,
-  paypal_plan_id TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (id, project_id)
+);
+
+-- 套餐价格映射（支持 PayPal / Stripe / Creem 等多支付平台）
+CREATE TABLE IF NOT EXISTS plan_prices (
+  id TEXT NOT NULL,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  plan_id TEXT NOT NULL,
+  platform TEXT NOT NULL,            -- 'paypal', 'stripe', 'creem'
+  external_id TEXT NOT NULL,         -- 支付平台 price/plan/product ID
+  interval TEXT NOT NULL,            -- 'month', 'year', 'one_time'
+  currency TEXT NOT NULL DEFAULT 'USD',
+  amount_cents INTEGER NOT NULL,
+  is_active INTEGER DEFAULT 1,
+  metadata JSON,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (id, project_id),
+  UNIQUE(platform, external_id)
 );
 
 -- 用户配额表（核心表）
@@ -61,14 +77,28 @@ CREATE TABLE IF NOT EXISTS user_quotas (
   period_end TEXT,                     -- 当前计费周期结束时间（到期/续费节点）
   credits_purchased INTEGER DEFAULT 0, -- 剩余购买积分（充值叠加包）
   credits_gifted INTEGER DEFAULT 0,    -- 剩余赠送积分（注册奖励等）
-  subscription_status TEXT DEFAULT 'inactive', -- 'active', 'cancelled', 'expired', 'past_due', 'inactive'
-  subscription_provider TEXT,          -- 'paypal', 'stripe'
-  subscription_external_id TEXT,       -- PayPal/Stripe 订阅 ID
   total_used INTEGER DEFAULT 0,        -- 累计使用次数
   total_purchased INTEGER DEFAULT 0,   -- 累计购买积分数
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(user_id, project_id)
+);
+
+-- 订阅记录（独立于额度快照，便于多支付平台和审计）
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  plan_id TEXT NOT NULL,
+  platform TEXT NOT NULL,              -- 'paypal', 'stripe'
+  external_id TEXT NOT NULL,           -- PayPal/Stripe 订阅 ID
+  status TEXT NOT NULL DEFAULT 'active', -- 'active', 'cancelled', 'expired', 'past_due'
+  current_period_start TEXT,
+  current_period_end TEXT,
+  cancel_at_period_end INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(platform, external_id)
 );
 
 -- 使用记录（审计 + 幂等防重）
@@ -80,8 +110,7 @@ CREATE TABLE IF NOT EXISTS usage_logs (
   credits_used INTEGER DEFAULT 1,
   source TEXT,                       -- 'monthly', 'purchased', 'gifted'
   status TEXT,                       -- 'success', 'failed', 'refunded'
-  image_size INTEGER,                -- 原图大小（字节）
-  processing_time_ms INTEGER,        -- 处理耗时
+  metadata JSON,                     -- 业务侧扩展数据
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -94,11 +123,41 @@ CREATE TABLE IF NOT EXISTS credit_purchases (
   package_name TEXT,                 -- '50 Credits', '200 Credits', '500 Credits'
   credits_amount INTEGER,
   price_paid_cents INTEGER,          -- 实际支付（美分）
-  payment_provider TEXT,             -- 'paypal', 'stripe'
-  payment_intent_id TEXT,            -- PayPal Order ID / Stripe Payment Intent ID
+  platform TEXT,                     -- 'paypal', 'stripe'
+  external_id TEXT,                  -- PayPal Order ID / Stripe Payment Intent ID
   status TEXT DEFAULT 'pending',     -- 'pending', 'completed', 'refunded'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 支付平台事件记录（webhook 幂等 + 审计）
+CREATE TABLE IF NOT EXISTS payment_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  platform TEXT NOT NULL,            -- 'paypal', 'stripe', 'creem'
+  external_id TEXT NOT NULL,         -- webhook event id / order id / transaction id
+  event_type TEXT NOT NULL,
+  resource_type TEXT,
+  resource_id TEXT,
+  status TEXT DEFAULT 'received',    -- 'received', 'processed', 'ignored', 'failed'
+  payload JSON,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  processed_at TEXT,
+  UNIQUE(platform, external_id)
+);
+
+-- 积分流水账本（所有额度变化必须写流水）
+CREATE TABLE IF NOT EXISTS credit_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  type TEXT NOT NULL,                -- 'gift', 'purchase', 'subscription', 'consume', 'refund', 'adjustment'
+  source TEXT,                       -- 'monthly', 'purchased', 'gifted'
+  amount INTEGER NOT NULL,           -- 正数增加额度，负数消耗额度
+  platform TEXT,                     -- 外部来源平台，可为空
+  external_id TEXT,                  -- 外部幂等 ID / job ID / payment ID
+  metadata JSON,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- 初始化默认套餐（每个 project 各一份）
@@ -108,9 +167,23 @@ INSERT OR IGNORE INTO subscription_plans (id, project_id, name, price_monthly, p
 ('pro',      'clearcut', 'Pro',      999,  9990,  300, '["hd_quality", "priority", "batch_10", "history_30d"]'),
 ('business', 'clearcut', 'Business', 2999, 29990, 1000,'["hd_quality", "priority", "batch_50", "history_90d", "api_access"]');
 
+-- PayPal sandbox 默认价格映射（生产环境可替换为对应平台 ID）
+INSERT OR IGNORE INTO plan_prices (id, project_id, plan_id, platform, external_id, interval, currency, amount_cents) VALUES
+('paypal_pro_monthly',      'clearcut', 'pro',      'paypal', 'P-71M61162GE011714JNHEV2SI', 'month', 'USD', 999),
+('paypal_pro_yearly',       'clearcut', 'pro',      'paypal', 'P-4YK949015E500590JNHEV2SI', 'year',  'USD', 9990),
+('paypal_business_monthly', 'clearcut', 'business', 'paypal', 'P-8P429838BA503293TNHEV2SQ', 'month', 'USD', 2999),
+('paypal_business_yearly',  'clearcut', 'business', 'paypal', 'P-4W476401A4943870XNHEV2SQ', 'year',  'USD', 29990);
+
 CREATE INDEX IF NOT EXISTS idx_user_quotas_user_project ON user_quotas(user_id, project_id);
-CREATE INDEX IF NOT EXISTS idx_user_quotas_ext_id ON user_quotas(subscription_external_id);
+CREATE INDEX IF NOT EXISTS idx_plan_prices_plan ON plan_prices(project_id, plan_id);
+CREATE INDEX IF NOT EXISTS idx_plan_prices_platform ON plan_prices(platform, external_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_project ON subscriptions(user_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_external ON subscriptions(platform, external_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_project ON usage_logs(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_created ON usage_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_credit_purchases_user ON credit_purchases(user_id, project_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_purchases_payment ON credit_purchases(payment_provider, payment_intent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_purchases_payment ON credit_purchases(platform, external_id);
+CREATE INDEX IF NOT EXISTS idx_payment_events_resource ON payment_events(platform, resource_id);
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_project ON credit_transactions(user_id, project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_transactions_external ON credit_transactions(project_id, platform, external_id);

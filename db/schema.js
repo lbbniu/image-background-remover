@@ -39,13 +39,31 @@ export const subscriptionPlans = sqliteTable('subscription_plans', {
   priceYearly: integer('price_yearly'),
   creditsMonthly: integer('credits_monthly'),
   features: text('features'),
-  stripePriceId: text('stripe_price_id'),
-  paypalPlanId: text('paypal_plan_id'),
   isActive: integer('is_active').default(1),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   primaryKey({ columns: [table.id, table.projectId] }),
+]);
+
+export const planPrices = sqliteTable('plan_prices', {
+  id: text('id').notNull(),
+  projectId: text('project_id').notNull().default('clearcut'),
+  planId: text('plan_id').notNull(),
+  platform: text('platform').notNull(),
+  externalId: text('external_id').notNull(),
+  interval: text('interval').notNull(),
+  currency: text('currency').notNull().default('USD'),
+  amountCents: integer('amount_cents').notNull(),
+  isActive: integer('is_active').default(1),
+  metadata: text('metadata'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  primaryKey({ columns: [table.id, table.projectId] }),
+  uniqueIndex('uq_plan_prices_platform_external').on(table.platform, table.externalId),
+  index('idx_plan_prices_plan').on(table.projectId, table.planId),
+  index('idx_plan_prices_platform').on(table.platform, table.externalId),
 ]);
 
 export const userQuotas = sqliteTable('user_quotas', {
@@ -59,9 +77,6 @@ export const userQuotas = sqliteTable('user_quotas', {
   periodEnd: text('period_end'),
   creditsPurchased: integer('credits_purchased').default(0),
   creditsGifted: integer('credits_gifted').default(0),
-  subscriptionStatus: text('subscription_status').default('inactive'),
-  subscriptionProvider: text('subscription_provider'),
-  subscriptionExternalId: text('subscription_external_id'),
   totalUsed: integer('total_used').default(0),
   totalPurchased: integer('total_purchased').default(0),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -69,7 +84,26 @@ export const userQuotas = sqliteTable('user_quotas', {
 }, (table) => [
   uniqueIndex('uq_user_quotas_user_project').on(table.userId, table.projectId),
   index('idx_user_quotas_user_project').on(table.userId, table.projectId),
-  index('idx_user_quotas_ext_id').on(table.subscriptionExternalId),
+]);
+
+export const subscriptions = sqliteTable('subscriptions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().default('clearcut'),
+  planId: text('plan_id').notNull(),
+  platform: text('platform').notNull(),
+  externalId: text('external_id').notNull(),
+  status: text('status').notNull().default('active'),
+  currentPeriodStart: text('current_period_start'),
+  currentPeriodEnd: text('current_period_end'),
+  cancelAtPeriodEnd: integer('cancel_at_period_end').default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  uniqueIndex('uq_subscriptions_platform_external').on(table.platform, table.externalId),
+  index('idx_subscriptions_user_project').on(table.userId, table.projectId),
+  index('idx_subscriptions_status').on(table.projectId, table.status),
+  index('idx_subscriptions_external').on(table.platform, table.externalId),
 ]);
 
 export const usageLogs = sqliteTable('usage_logs', {
@@ -80,8 +114,7 @@ export const usageLogs = sqliteTable('usage_logs', {
   creditsUsed: integer('credits_used').default(1),
   source: text('source'),
   status: text('status'),
-  imageSize: integer('image_size'),
-  processingTimeMs: integer('processing_time_ms'),
+  metadata: text('metadata'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
@@ -96,12 +129,45 @@ export const creditPurchases = sqliteTable('credit_purchases', {
   packageName: text('package_name'),
   creditsAmount: integer('credits_amount'),
   pricePaidCents: integer('price_paid_cents'),
-  paymentProvider: text('payment_provider'),
-  paymentIntentId: text('payment_intent_id'),
+  platform: text('platform'),
+  externalId: text('external_id'),
   status: text('status').default('pending'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_credit_purchases_user').on(table.userId, table.projectId),
-  uniqueIndex('uq_credit_purchases_payment').on(table.paymentProvider, table.paymentIntentId),
+  uniqueIndex('uq_credit_purchases_payment').on(table.platform, table.externalId),
+]);
+
+export const paymentEvents = sqliteTable('payment_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: text('project_id').notNull().default('clearcut'),
+  platform: text('platform').notNull(),
+  externalId: text('external_id').notNull(),
+  eventType: text('event_type').notNull(),
+  resourceType: text('resource_type'),
+  resourceId: text('resource_id'),
+  status: text('status').default('received'),
+  payload: text('payload'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  processedAt: text('processed_at'),
+}, (table) => [
+  uniqueIndex('uq_payment_events_platform_external').on(table.platform, table.externalId),
+  index('idx_payment_events_resource').on(table.platform, table.resourceId),
+]);
+
+export const creditTransactions = sqliteTable('credit_transactions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().default('clearcut'),
+  type: text('type').notNull(),
+  source: text('source'),
+  amount: integer('amount').notNull(),
+  platform: text('platform'),
+  externalId: text('external_id'),
+  metadata: text('metadata'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  index('idx_credit_transactions_user_project').on(table.userId, table.projectId),
+  uniqueIndex('uq_credit_transactions_external').on(table.projectId, table.platform, table.externalId),
 ]);

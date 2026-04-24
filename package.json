@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --no-warnings --test",
+    "test:coverage": "node --no-warnings --experimental-test-coverage --test-coverage-include=functions/api/**/*.js --test-coverage-lines=80 --test-coverage-branches=80 --test-coverage-functions=100 --test"
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",

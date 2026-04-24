@@ -1,8 +1,11 @@
 import { verifyWebhookSignature } from '../../lib/paypal.js';
 import {
   cancelUserSubscription,
+  completeCreditPurchase,
   getProjectId,
   getSubscriptionOwner,
+  markPaymentEventProcessed,
+  recordPaymentEvent,
   renewSubscriptionPeriod,
   updateSubscriptionStatus,
 } from '../../lib/quota.js';
@@ -24,23 +27,94 @@ export async function onRequestPost(context) {
     const body = JSON.parse(rawBody);
     const eventType = body.event_type;
     const resource = body.resource;
+    const eventId = body.id || `${eventType}:${resource?.id || crypto.randomUUID()}`;
 
     if (!env.DB) {
       return Response.json({ error: 'Database not configured' }, { status: 500 });
     }
 
+    const event = await recordPaymentEvent(env.DB, {
+      projectId,
+      platform: 'paypal',
+      externalId: eventId,
+      eventType,
+      resourceType: resource?.resource_type || resource?.object || 'unknown',
+      resourceId: resource?.id,
+      payload: body,
+    });
+    if (!event.inserted) {
+      return Response.json({ received: true, duplicate: true });
+    }
+
+    let eventStatus = 'processed';
+
     switch (eventType) {
+      case 'PAYMENT.CAPTURE.COMPLETED': {
+        const orderId = resource?.supplementary_data?.related_ids?.order_id;
+        const amount = resource?.amount?.value;
+        const amountPaidCents = amount ? Math.round(Number(amount) * 100) : null;
+
+        if (!orderId || !amountPaidCents) {
+          eventStatus = 'ignored';
+          break;
+        }
+
+        const result = await completeCreditPurchase(env.DB, {
+          projectId,
+          platform: 'paypal',
+          externalId: orderId,
+          amountPaidCents,
+          metadata: {
+            captureId: resource?.id,
+            confirmation: 'paypal_webhook',
+            eventId,
+          },
+        });
+
+        if (!result.applied && !['already_completed'].includes(result.reason)) {
+          eventStatus = result.reason === 'purchase_not_found' ? 'ignored' : 'failed';
+        }
+        break;
+      }
+      case 'CHECKOUT.ORDER.COMPLETED': {
+        const orderId = resource?.id;
+        const capture = resource?.purchase_units?.[0]?.payments?.captures?.[0];
+        const amount = capture?.amount?.value || resource?.purchase_units?.[0]?.amount?.value;
+        const amountPaidCents = amount ? Math.round(Number(amount) * 100) : null;
+
+        if (!orderId || !amountPaidCents) {
+          eventStatus = 'ignored';
+          break;
+        }
+
+        const result = await completeCreditPurchase(env.DB, {
+          projectId,
+          platform: 'paypal',
+          externalId: orderId,
+          amountPaidCents,
+          metadata: {
+            captureId: capture?.id,
+            confirmation: 'paypal_webhook',
+            eventId,
+          },
+        });
+
+        if (!result.applied && !['already_completed'].includes(result.reason)) {
+          eventStatus = result.reason === 'purchase_not_found' ? 'ignored' : 'failed';
+        }
+        break;
+      }
       case 'BILLING.SUBSCRIPTION.ACTIVATED': {
         const subscriptionId = resource?.id;
-        const quota = await getSubscriptionOwner(env.DB, { projectId, subscriptionExternalId: subscriptionId });
+        const quota = await getSubscriptionOwner(env.DB, { projectId, externalId: subscriptionId });
         if (quota) {
-          await updateSubscriptionStatus(env.DB, { projectId, subscriptionExternalId: subscriptionId, status: 'active' });
+          await updateSubscriptionStatus(env.DB, { projectId, externalId: subscriptionId, status: 'active' });
         }
         break;
       }
       case 'BILLING.SUBSCRIPTION.CANCELLED': {
         const subscriptionId = resource?.id;
-        const quota = await getSubscriptionOwner(env.DB, { projectId, subscriptionExternalId: subscriptionId });
+        const quota = await getSubscriptionOwner(env.DB, { projectId, externalId: subscriptionId });
         if (quota) {
           await cancelUserSubscription(env.DB, { userId: quota.userId, projectId });
         }
@@ -49,7 +123,7 @@ export async function onRequestPost(context) {
       case 'BILLING.SUBSCRIPTION.EXPIRED': {
         await updateSubscriptionStatus(env.DB, {
           projectId,
-          subscriptionExternalId: resource?.id,
+          externalId: resource?.id,
           status: 'expired',
           clearSubscription: true,
         });
@@ -58,7 +132,7 @@ export async function onRequestPost(context) {
       case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED': {
         await updateSubscriptionStatus(env.DB, {
           projectId,
-          subscriptionExternalId: resource?.id,
+          externalId: resource?.id,
           status: 'past_due',
         });
         break;
@@ -69,7 +143,7 @@ export async function onRequestPost(context) {
         if (nextBillingTime) {
           await renewSubscriptionPeriod(env.DB, {
             projectId,
-            subscriptionExternalId: resource?.id,
+            externalId: resource?.id,
             periodEnd: nextBillingTime,
           });
         }
@@ -77,7 +151,10 @@ export async function onRequestPost(context) {
       }
       default:
         console.log('Unhandled PayPal webhook event:', eventType);
+        eventStatus = 'ignored';
     }
+
+    await markPaymentEventProcessed(env.DB, { platform: 'paypal', externalId: eventId, status: eventStatus });
 
     return Response.json({ received: true });
   } catch (error) {

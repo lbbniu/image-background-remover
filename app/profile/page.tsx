@@ -106,8 +106,10 @@ export default function ProfilePage() {
 
   // Logged in — show profile
   const monthlyTotal = quota?.plan?.creditsMonthly || 10
-  const monthlyUsed = monthlyTotal - (quota?.credits?.monthlyRemaining || 0)
-  const monthlyPercent = Math.min(100, Math.round((monthlyUsed / monthlyTotal) * 100))
+  const monthlyRemaining = quota?.credits?.monthlyRemaining || 0
+  const monthlyUsed = Math.max(0, monthlyTotal - monthlyRemaining)
+  const monthlyPercent = monthlyTotal > 0 ? Math.min(100, Math.round((monthlyUsed / monthlyTotal) * 100)) : 0
+  const availableTotal = quota?.credits?.remaining ?? 0
 
   return (
     <div className="min-h-screen py-8 px-4">
@@ -161,7 +163,7 @@ export default function ProfilePage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">{t.profile.quotaTitle}</h2>
               <span className="text-sm text-cyan-400 font-medium">
-                {quotaLoading ? '...' : `${t.profile.remaining} ${quota?.credits?.remaining ?? '-'} ${t.profile.times}`}
+                {quotaLoading ? '...' : `${t.profile.totalAvailable} ${availableTotal} ${t.profile.times}`}
               </span>
             </div>
 
@@ -172,10 +174,18 @@ export default function ProfilePage() {
               </div>
             ) : quota ? (
               <>
+                <div className="mb-5 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                  <p className="text-sm text-cyan-200/80">{t.profile.totalAvailable}</p>
+                  <p className="mt-1 text-4xl font-bold text-white">
+                    {availableTotal}
+                    <span className="ml-2 text-sm font-medium text-gray-400">{t.profile.times}</span>
+                  </p>
+                </div>
+
                 {/* Monthly quota progress */}
                 <div className="mb-4">
                   <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-gray-400">{t.profile.monthlyQuota}</span>
+                    <span className="text-gray-400">{t.profile.monthlyUsed}</span>
                     <span className="text-gray-300">{monthlyUsed} / {monthlyTotal}</span>
                   </div>
                   <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
@@ -198,14 +208,21 @@ export default function ProfilePage() {
                       <span className="w-2 h-2 rounded-full bg-indigo-500" />
                       {t.profile.monthlyRemaining}
                     </span>
-                    <span className="text-gray-300">{quota.credits.monthlyRemaining} {t.profile.times}</span>
+                    <span className="text-gray-300">{monthlyRemaining} {t.profile.times}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500 flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      {t.profile.purchasedRemaining || 'Purchased Credits'}
+                    </span>
+                    <span className="text-gray-300">{quota.credits.purchasedRemaining} {t.profile.times}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
                       {t.profile.bonusRemaining}
                     </span>
-                    <span className="text-gray-300">{quota.credits.giftedRemaining + quota.credits.purchasedRemaining} {t.profile.times}</span>
+                    <span className="text-gray-300">{quota.credits.giftedRemaining} {t.profile.times}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm pt-2 border-t border-gray-800">
                     <span className="text-gray-500">{t.profile.totalUsed}</span>

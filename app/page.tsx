@@ -296,7 +296,7 @@ export default function Home() {
                   <span className="text-sm text-gray-400">{t.home.original}</span>
                   <span className="text-xs text-gray-500">Original</span>
                 </div>
-                <div className="image-container rounded-xl overflow-hidden aspect-square">
+                <div className="image-container rounded-xl overflow-hidden aspect-square relative">
                   {originalImage && (
                     <Image
                       src={originalImage}

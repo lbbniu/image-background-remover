@@ -16,6 +16,8 @@ const WEBHOOK_URL = 'https://ibr.zwlm.cc/api/webhooks/paypal';
 const CF_PROJECT = 'clearcut';
 
 const LISTEN_EVENTS = [
+  'CHECKOUT.ORDER.COMPLETED',
+  'PAYMENT.CAPTURE.COMPLETED',
   'BILLING.SUBSCRIPTION.ACTIVATED',
   'BILLING.SUBSCRIPTION.CANCELLED',
   'BILLING.SUBSCRIPTION.EXPIRED',
@@ -56,6 +58,21 @@ async function createWebhook(apiBase, token) {
   return res.json();
 }
 
+async function updateWebhookEvents(apiBase, token, webhookId) {
+  const res = await fetch(`${apiBase}/v1/notifications/webhooks/${webhookId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify([
+      {
+        op: 'replace',
+        path: '/event_types',
+        value: LISTEN_EVENTS.map((name) => ({ name })),
+      },
+    ]),
+  });
+  if (!res.ok) throw new Error(`Update webhook failed: ${res.status} ${await res.text()}`);
+}
+
 async function setCloudflareSecret(projectName, secretName, secretValue) {
   const { execSync } = await import('child_process');
   execSync(
@@ -85,6 +102,9 @@ async function main() {
 
   if (webhook) {
     console.log(`✓ 已找到现有 Webhook: ${webhook.id}`);
+    console.log('  正在同步监听事件...');
+    await updateWebhookEvents(apiBase, token, webhook.id);
+    console.log(`✓ 监听事件已同步: ${LISTEN_EVENTS.join(', ')}`);
   } else {
     console.log('  未找到已有 Webhook，正在创建...');
     webhook = await createWebhook(apiBase, token);

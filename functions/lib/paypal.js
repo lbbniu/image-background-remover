@@ -37,7 +37,7 @@ export async function getAccessToken(env) {
 /**
  * 创建一次性支付订单 (Orders API v2)
  */
-export async function createOrder(env, amount, description) {
+export async function createOrder(env, amount, description, { customId, invoiceId } = {}) {
   const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
   const accessToken = await getAccessToken(env);
 
@@ -55,6 +55,8 @@ export async function createOrder(env, amount, description) {
           value: amount,
         },
         description,
+        ...(customId ? { custom_id: customId } : {}),
+        ...(invoiceId ? { invoice_id: invoiceId } : {}),
       }],
     }),
   });
@@ -62,6 +64,29 @@ export async function createOrder(env, amount, description) {
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`PayPal create order failed: ${response.status} ${error}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * 获取订单详情。用于 webhook 补偿时校验订单状态和金额。
+ */
+export async function getOrderDetails(env, orderId) {
+  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
+  const accessToken = await getAccessToken(env);
+
+  const response = await fetch(`${apiBase}/v2/checkout/orders/${orderId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`PayPal get order failed: ${response.status} ${error}`);
   }
 
   return response.json();

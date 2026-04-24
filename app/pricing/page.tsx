@@ -8,12 +8,17 @@ import SubscriptionCheckout from '../components/SubscriptionCheckout'
 import PayPalProvider from '../components/PayPalProvider'
 import { useI18n } from '../i18n'
 
-// 订阅计划的 Plan ID 占位符（运行 init-paypal-plans.js 后替换）
-const SUBSCRIPTION_PLANS = {
-  pro_monthly: 'P-71M61162GE011714JNHEV2SI',
-  pro_yearly: 'P-4YK949015E500590JNHEV2SI',
-  biz_monthly: 'P-8P429838BA503293TNHEV2SQ',
-  biz_yearly: 'P-4W476401A4943870XNHEV2SQ',
+type SubscriptionPriceKey = 'pro_monthly' | 'pro_yearly' | 'biz_monthly' | 'biz_yearly'
+type CheckoutState =
+  | { type: 'subscription'; planId: string; planName: string }
+  | { type: 'credit'; packId: string; credits: number; price: number }
+  | null
+
+const emptySubscriptionPrices: Record<SubscriptionPriceKey, string> = {
+  pro_monthly: '',
+  pro_yearly: '',
+  biz_monthly: '',
+  biz_yearly: '',
 }
 
 const plansData = [
@@ -50,6 +55,7 @@ const plansData = [
     badgeKey: 'proBadge' as const,
     features: [
       { textKey: 'credits200', included: true },
+      { textKey: 'hdCost', included: true },
       { textKey: 'hdQuality', included: true },
       { textKey: 'maxFile25', included: true },
       { textKey: 'batch10', included: true },
@@ -72,6 +78,7 @@ const plansData = [
     highlight: false,
     features: [
       { textKey: 'credits1000', included: true },
+      { textKey: 'hdCost', included: true },
       { textKey: 'hdQuality', included: true },
       { textKey: 'maxFile25', included: true },
       { textKey: 'batch50', included: true },
@@ -98,6 +105,7 @@ function getFeatureText(textKey: string, t: ReturnType<typeof useI18n>['t']): st
     credits10: `10 ${t.pricing.creditsMonth}`,
     credits200: `200 ${t.pricing.creditsMonth}`,
     credits1000: `1,000 ${t.pricing.creditsMonth}`,
+    hdCost: t.pricing.hdCost,
     signupBonus: t.pricing.signupBonus,
     standardQuality: t.pricing.standardQuality,
     maxFile10: `${t.pricing.maxFile} 10MB`,
@@ -160,7 +168,10 @@ export default function PricingPage() {
   const [annual, setAnnual] = useState(false)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
+  const [subscriptionPrices, setSubscriptionPrices] = useState<Record<SubscriptionPriceKey, string>>(emptySubscriptionPrices)
+  const [pricesLoaded, setPricesLoaded] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [checkout, setCheckout] = useState<CheckoutState>(null)
 
   // Check login status
   useEffect(() => {
@@ -168,6 +179,20 @@ export default function PricingPage() {
       .then(res => res.json())
       .then(data => setIsLoggedIn(!!data.user))
       .catch(() => setIsLoggedIn(false))
+
+    fetch('/api/plan-prices?platform=paypal')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success) return
+        const next = { ...emptySubscriptionPrices }
+        for (const price of data.prices as Array<{ id: string; planId: string; interval: string; externalId: string }>) {
+          const key = `${price.planId}_${price.interval === 'year' ? 'yearly' : 'monthly'}`
+          if (key in next) next[key as SubscriptionPriceKey] = price.externalId
+        }
+        setSubscriptionPrices(next)
+      })
+      .catch(() => {})
+      .finally(() => setPricesLoaded(true))
   }, [])
 
   const handleLoginRequired = () => {
@@ -175,6 +200,7 @@ export default function PricingPage() {
   }
 
   const handleCreditPackSuccess = (credits: number) => {
+    setCheckout(null)
     setToast({
       message: `${t.pricing.paymentSuccess || 'Payment successful!'} +${credits} ${t.pricing.packCredits}`,
       type: 'success',
@@ -182,6 +208,7 @@ export default function PricingPage() {
   }
 
   const handleSubscriptionSuccess = (plan: string) => {
+    setCheckout(null)
     setToast({
       message: `${t.pricing.subscriptionSuccess || 'Subscription activated!'} — ${plan}`,
       type: 'success',
@@ -194,6 +221,61 @@ export default function PricingPage() {
 
         {/* Toast */}
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+        {checkout && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <button
+              type="button"
+              aria-label="Close checkout"
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              onClick={() => setCheckout(null)}
+            />
+            <div className="relative w-full max-w-md glass-card rounded-3xl p-6 glow-border">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <h2 className="text-xl font-bold text-white">
+                    {checkout.type === 'subscription'
+                      ? checkout.planName
+                      : `${checkout.credits} ${t.pricing.packCredits}`}
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {checkout.type === 'subscription'
+                      ? t.pricing.subscriptionCheckout || 'Complete your subscription with PayPal'
+                      : `$${checkout.price} · ${t.pricing.packBuy}`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCheckout(null)}
+                  className="w-9 h-9 rounded-full bg-white/10 text-gray-400 hover:text-white hover:bg-white/15 transition-colors"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              <PayPalProvider
+                key={checkout.type === 'subscription' ? `sub-${checkout.planId}` : `credit-${checkout.packId}`}
+                intent={checkout.type === 'subscription' ? 'subscription' : 'capture'}
+              >
+                {checkout.type === 'subscription' ? (
+                  <SubscriptionCheckout
+                    planId={checkout.planId}
+                    planName={checkout.planName}
+                    onSuccess={handleSubscriptionSuccess}
+                  />
+                ) : (
+                  <CreditPackCheckout
+                    packId={checkout.packId}
+                    credits={checkout.credits}
+                    price={checkout.price}
+                    onSuccess={handleCreditPackSuccess}
+                  />
+                )}
+              </PayPalProvider>
+            </div>
+          </div>
+        )}
 
         {/* Navigation */}
         <Navbar activePage="pricing" />
@@ -232,7 +314,7 @@ export default function PricingPage() {
               ? (annual ? plan.subscriptionKey.yearly : plan.subscriptionKey.monthly)
               : null
             const subscriptionPlanId = subscriptionPlanKey
-              ? SUBSCRIPTION_PLANS[subscriptionPlanKey]
+              ? subscriptionPrices[subscriptionPlanKey]
               : null
 
             return (
@@ -272,6 +354,11 @@ export default function PricingPage() {
                   <p className="text-sm text-cyan-400 mt-2">
                     {plan.credits} {t.pricing.creditsMonth}
                   </p>
+                  {price > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      ≈ {Math.floor(Number(plan.credits.replace(',', '')) / 10)} {t.pricing.hdRemovalEstimate}
+                    </p>
+                  )}
                 </div>
 
                 {/* CTA: Free plan → login link, paid plans → subscription */}
@@ -282,6 +369,13 @@ export default function PricingPage() {
                   >
                     {t.pricing[plan.ctaKey]}
                   </a>
+                ) : isLoggedIn === null || !pricesLoaded ? (
+                  <button
+                    disabled
+                    className="block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 btn-secondary opacity-50 cursor-not-allowed"
+                  >
+                    {t.pricing.loading || 'Loading...'}
+                  </button>
                 ) : isLoggedIn === false ? (
                   <button
                     onClick={handleLoginRequired}
@@ -292,24 +386,25 @@ export default function PricingPage() {
                     {t.pricing.loginToBuy || t.pricing[plan.ctaKey]}
                   </button>
                 ) : subscriptionPlanId ? (
-                  <div className="mb-8">
-                    <PayPalProvider intent="subscription">
-                      <SubscriptionCheckout
-                        planId={subscriptionPlanId}
-                        planName={t.pricing[plan.nameKey]}
-                        onSuccess={handleSubscriptionSuccess}
-                      />
-                    </PayPalProvider>
-                  </div>
-                ) : (
-                  <a
-                    href={plan.ctaLink}
+                  <button
+                    onClick={() => setCheckout({
+                      type: 'subscription',
+                      planId: subscriptionPlanId,
+                      planName: t.pricing[plan.nameKey],
+                    })}
                     className={`block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 ${
                       plan.highlight ? 'btn-primary' : 'btn-secondary'
                     }`}
                   >
                     {t.pricing[plan.ctaKey]}
-                  </a>
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="block w-full text-center py-3 rounded-xl font-semibold transition-all mb-8 btn-secondary opacity-50 cursor-not-allowed"
+                  >
+                    {t.pricing.paymentUnavailable || t.pricing.comingSoon || 'Payment unavailable'}
+                  </button>
                 )}
 
                 <ul className="space-y-3">
@@ -355,14 +450,17 @@ export default function PricingPage() {
                     {t.pricing.loginToBuy || t.pricing.packBuy}
                   </button>
                 ) : isLoggedIn ? (
-                  <PayPalProvider intent="capture">
-                    <CreditPackCheckout
-                      packId={pack.id}
-                      credits={pack.credits}
-                      price={pack.price}
-                      onSuccess={handleCreditPackSuccess}
-                    />
-                  </PayPalProvider>
+                  <button
+                    onClick={() => setCheckout({
+                      type: 'credit',
+                      packId: pack.id,
+                      credits: pack.credits,
+                      price: pack.price,
+                    })}
+                    className="w-full py-2 btn-secondary rounded-lg text-sm font-medium"
+                  >
+                    {t.pricing.packBuy}
+                  </button>
                 ) : (
                   <button className="w-full py-2 btn-secondary rounded-lg text-sm font-medium opacity-50" disabled>
                     {t.pricing.packBuy}

@@ -1,5 +1,5 @@
 import { getUser } from '../lib/auth.js';
-import { consumeCredit, getProjectId, getUserCreditBalance, updateUsageLog } from '../lib/quota.js';
+import { consumeCredit, getCreditConsumeOrder, getProjectId, getUserCreditBalance, refundCredit, updateUsageLog } from '../lib/quota.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);
@@ -23,6 +23,11 @@ function generateJobId() {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
 }
 
+function getRemoveBgCreditCost(env) {
+  const configured = Number(env.REMOVE_BG_CREDIT_COST || 10);
+  return Number.isFinite(configured) && configured > 0 ? Math.ceil(configured) : 10;
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
   const jobId = generateJobId();
@@ -38,6 +43,7 @@ export async function onRequestPost(context) {
     }
 
     const projectId = getProjectId(env);
+    const internalCreditCost = getRemoveBgCreditCost(env);
 
     // 2. 检查额度（需要登录才能处理）
     if (!env.DB) {
@@ -48,12 +54,13 @@ export async function onRequestPost(context) {
     }
 
     const quotaCheck = await getUserCreditBalance(env.DB, { userId: user.sub, projectId });
-    if (!quotaCheck.allowed) {
+    if (!quotaCheck.allowed || quotaCheck.remaining < internalCreditCost) {
       return Response.json({
         success: false,
-        error: 'No credits remaining. Please upgrade your plan.',
+        error: `At least ${internalCreditCost} credits are required for HD background removal.`,
         code: 'NO_CREDITS',
-        remaining: 0,
+        remaining: quotaCheck.remaining || 0,
+        required: internalCreditCost,
         upgradeUrl: '/pricing',
       }, { status: 403 });
     }
@@ -77,8 +84,22 @@ export async function onRequestPost(context) {
       );
     }
 
+    const apiKey = env.REMOVE_BG_API_KEY;
+    if (!apiKey) {
+      return Response.json(
+        { success: false, error: 'API key not configured' },
+        { status: 500 }
+      );
+    }
+
     // 3. 扣减额度
-    const deductResult = await consumeCredit(env.DB, { userId: user.sub, projectId, jobId });
+    const deductResult = await consumeCredit(env.DB, {
+      userId: user.sub,
+      projectId,
+      jobId,
+      credits: internalCreditCost,
+      consumeOrder: getCreditConsumeOrder(env),
+    });
     if (!deductResult.success) {
       return Response.json({
         success: false,
@@ -92,14 +113,6 @@ export async function onRequestPost(context) {
     formData.append('image_file', new Blob([bytes]), 'image.png');
     formData.append('size', 'auto');
 
-    const apiKey = env.REMOVE_BG_API_KEY;
-    if (!apiKey) {
-      return Response.json(
-        { success: false, error: 'API key not configured' },
-        { status: 500 }
-      );
-    }
-
     const startTime = Date.now();
     const response = await fetch('https://api.remove.bg/v1.0/removebg', {
       method: 'POST',
@@ -111,7 +124,7 @@ export async function onRequestPost(context) {
     if (!response.ok) {
       // API 失败，尝试退还额度
       try {
-        await updateUsageLog(env.DB, { jobId, status: 'refunded' });
+        await refundCredit(env.DB, { userId: user.sub, projectId, jobId });
       } catch (e) {
         console.error('Failed to refund credit:', e);
       }
@@ -122,10 +135,19 @@ export async function onRequestPost(context) {
 
     const resultBuffer = await response.arrayBuffer();
     const resultBase64 = arrayBufferToBase64(resultBuffer);
+    const removeBgCreditsCharged = response.headers.get('X-Credits-Charged');
 
     // 更新使用日志的处理时间
     try {
-      await updateUsageLog(env.DB, { jobId, processingTimeMs: processingTime });
+      await updateUsageLog(env.DB, {
+        jobId,
+        metadata: {
+          provider: 'remove.bg',
+          providerCreditsCharged: removeBgCreditsCharged ? Number(removeBgCreditsCharged) : null,
+          internalCreditsCharged: internalCreditCost,
+          processingTimeMs: processingTime,
+        },
+      });
     } catch (e) {
       console.error('Failed to update usage log:', e);
     }
@@ -134,6 +156,7 @@ export async function onRequestPost(context) {
       success: true,
       image: `data:image/png;base64,${resultBase64}`,
       creditsRemaining: deductResult.remaining,
+      creditsCharged: internalCreditCost,
     });
 
   } catch (error) {
