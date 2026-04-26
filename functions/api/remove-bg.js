@@ -1,9 +1,6 @@
 import { getUser } from '../lib/auth.js';
-import {
-  getBackgroundRemovalCreditCost,
-  removeImageBackground,
-  selectBackgroundRemovalProvider,
-} from '../features/background-removal.js';
+import { removeImageBackground, selectBackgroundRemovalProvider } from '../features/background-removal.js';
+import { resolveUsageCharge } from '../lib/billing/policies.js';
 import { getProjectId } from '../lib/core/projects.js';
 import { consumeCredit, getCreditConsumeOrder, getUserCreditBalance, refundCredit, updateUsageLog } from '../lib/credits/service.js';
 
@@ -45,7 +42,11 @@ export async function onRequestPost(context) {
 
     const projectId = getProjectId(env);
     const provider = selectBackgroundRemovalProvider(env);
-    const internalCreditCost = getBackgroundRemovalCreditCost(env, provider);
+    const charge = await resolveUsageCharge(env.DB, {
+      projectId,
+      action: 'background.remove',
+      variant: provider,
+    });
 
     // 2. 检查额度（需要登录才能处理）
     if (!env.DB) {
@@ -56,13 +57,13 @@ export async function onRequestPost(context) {
     }
 
     const quotaCheck = await getUserCreditBalance(env.DB, { userId: user.sub, projectId });
-    if (!quotaCheck.allowed || quotaCheck.remaining < internalCreditCost) {
+    if (!quotaCheck.allowed || quotaCheck.remaining < charge.credits) {
       return Response.json({
         success: false,
-        error: `At least ${internalCreditCost} credits are required for HD background removal.`,
+        error: `At least ${charge.credits} credits are required for HD background removal.`,
         code: 'NO_CREDITS',
         remaining: quotaCheck.remaining || 0,
-        required: internalCreditCost,
+        required: charge.credits,
         upgradeUrl: '/pricing',
       }, { status: 403 });
     }
@@ -91,7 +92,7 @@ export async function onRequestPost(context) {
       userId: user.sub,
       projectId,
       jobId,
-      credits: internalCreditCost,
+      credits: charge.credits,
       consumeOrder: getCreditConsumeOrder(env),
     });
     if (!deductResult.success) {
@@ -126,9 +127,13 @@ export async function onRequestPost(context) {
         metadata: {
           provider: removal.provider,
           providerCreditsCharged: removal.providerCreditsCharged,
-          providerCostEstimateCents: removal.estimatedCostCents,
-          internalCreditsCharged: removal.internalCreditCost,
+          providerCostEstimateCents: charge.costEstimateCents,
+          internalCreditsCharged: charge.credits,
+          usagePricingKey: charge.pricingKey,
+          usageAction: charge.action,
+          usageVariant: charge.variant,
           processingTimeMs: removal.processingTimeMs,
+          ...charge.metadata,
         },
       });
     } catch (e) {
@@ -139,7 +144,7 @@ export async function onRequestPost(context) {
       success: true,
       image: `data:image/png;base64,${resultBase64}`,
       creditsRemaining: deductResult.remaining,
-      creditsCharged: internalCreditCost,
+      creditsCharged: charge.credits,
       provider: removal.provider,
     });
 

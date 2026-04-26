@@ -65,6 +65,22 @@ CREATE TABLE IF NOT EXISTS plan_prices (
   UNIQUE(platform, external_id)
 );
 
+-- 接口计费规则（action + variant -> 应扣站内积分）
+CREATE TABLE IF NOT EXISTS usage_pricing (
+  id TEXT NOT NULL,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  action TEXT NOT NULL,               -- 'background.remove', 'image.upscale'
+  variant TEXT NOT NULL DEFAULT 'default', -- 'photoroom', 'bria', 'removebg', 'default'
+  credits INTEGER NOT NULL,           -- 本次调用扣减的站内积分
+  cost_estimate_cents INTEGER DEFAULT 0, -- 内部成本估算（美分），仅用于分析
+  metadata JSON,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (id, project_id),
+  UNIQUE(project_id, action, variant)
+);
+
 -- 用户配额表（核心表）
 CREATE TABLE IF NOT EXISTS user_quotas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,9 +190,16 @@ INSERT OR IGNORE INTO plan_prices (id, project_id, plan_id, platform, external_i
 ('paypal_business_monthly', 'clearcut', 'business', 'paypal', 'P-8P429838BA503293TNHEV2SQ', 'month', 'USD', 2999),
 ('paypal_business_yearly',  'clearcut', 'business', 'paypal', 'P-4W476401A4943870XNHEV2SQ', 'year',  'USD', 29990);
 
+-- 默认接口计费规则（可按 project_id 独立配置）
+INSERT OR IGNORE INTO usage_pricing (id, project_id, action, variant, credits, cost_estimate_cents, metadata) VALUES
+('background_remove_photoroom', 'clearcut', 'background.remove', 'photoroom', 2, 2,  '{"provider":"photoroom"}'),
+('background_remove_bria',      'clearcut', 'background.remove', 'bria',      2, 2,  '{"provider":"bria"}'),
+('background_remove_removebg',  'clearcut', 'background.remove', 'removebg',  10, 20, '{"provider":"remove.bg"}');
+
 CREATE INDEX IF NOT EXISTS idx_user_quotas_user_project ON user_quotas(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_plan_prices_plan ON plan_prices(project_id, plan_id);
 CREATE INDEX IF NOT EXISTS idx_plan_prices_platform ON plan_prices(platform, external_id);
+CREATE INDEX IF NOT EXISTS idx_usage_pricing_lookup ON usage_pricing(project_id, action, variant, is_active);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_project ON subscriptions(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_external ON subscriptions(platform, external_id);

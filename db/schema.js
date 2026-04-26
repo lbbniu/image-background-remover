@@ -66,6 +66,23 @@ export const planPrices = sqliteTable('plan_prices', {
   index('idx_plan_prices_platform').on(table.platform, table.externalId),
 ]);
 
+export const usagePricing = sqliteTable('usage_pricing', {
+  id: text('id').notNull(),
+  projectId: text('project_id').notNull().default('clearcut'),
+  action: text('action').notNull(),
+  variant: text('variant').notNull().default('default'),
+  credits: integer('credits').notNull(),
+  costEstimateCents: integer('cost_estimate_cents').default(0),
+  metadata: text('metadata'),
+  isActive: integer('is_active').default(1),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  primaryKey({ columns: [table.id, table.projectId] }),
+  uniqueIndex('uq_usage_pricing_project_action_variant').on(table.projectId, table.action, table.variant),
+  index('idx_usage_pricing_lookup').on(table.projectId, table.action, table.variant, table.isActive),
+]);
+
 export const userQuotas = sqliteTable('user_quotas', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

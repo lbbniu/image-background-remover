@@ -1,25 +1,14 @@
 const PROVIDERS = {
   photoroom: {
     name: 'photoroom',
-    defaultCreditCost: 2,
-    estimatedCostCents: 2,
   },
   bria: {
     name: 'bria',
-    defaultCreditCost: 2,
-    estimatedCostCents: 2,
   },
   removebg: {
     name: 'remove.bg',
-    defaultCreditCost: 10,
-    estimatedCostCents: 20,
   },
 };
-
-function readPositiveInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : fallback;
-}
 
 function providerAvailable(env, provider) {
   if (provider === 'photoroom') return Boolean(env.PHOTOROOM_API_KEY);
@@ -47,29 +36,6 @@ export function selectBackgroundRemovalProvider(env) {
   }
 
   throw new Error('No background removal provider configured');
-}
-
-export function getBackgroundRemovalCreditCost(env, provider) {
-  if (provider === 'photoroom') {
-    return readPositiveInteger(env.PHOTOROOM_CREDIT_COST, PROVIDERS.photoroom.defaultCreditCost);
-  }
-  if (provider === 'bria') {
-    return readPositiveInteger(env.BRIA_CREDIT_COST, PROVIDERS.bria.defaultCreditCost);
-  }
-  return readPositiveInteger(
-    env.REMOVE_BG_CREDIT_COST,
-    PROVIDERS.removebg.defaultCreditCost,
-  );
-}
-
-function getEstimatedCostCents(env, provider) {
-  if (provider === 'photoroom') {
-    return readPositiveInteger(env.PHOTOROOM_COST_ESTIMATE_CENTS, PROVIDERS.photoroom.estimatedCostCents);
-  }
-  if (provider === 'bria') {
-    return readPositiveInteger(env.BRIA_COST_ESTIMATE_CENTS, PROVIDERS.bria.estimatedCostCents);
-  }
-  return readPositiveInteger(env.REMOVE_BG_COST_ESTIMATE_CENTS, PROVIDERS.removebg.estimatedCostCents);
 }
 
 async function ensureOk(response, providerName) {
@@ -152,8 +118,6 @@ export async function removeImageBackground(env, bytes, provider) {
 
   return {
     provider: PROVIDERS[selected].name,
-    internalCreditCost: getBackgroundRemovalCreditCost(env, selected),
-    estimatedCostCents: getEstimatedCostCents(env, selected),
     processingTimeMs: Date.now() - start,
     ...result,
   };
