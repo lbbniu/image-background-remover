@@ -93,9 +93,13 @@ printf 'https://your-bria-background-removal-endpoint' | npx wrangler pages secr
 printf 'your_remove_bg_api_key_here' | npx wrangler pages secret put REMOVE_BG_API_KEY --project-name=clearcut
 ```
 
-## 🧩 新站点快速复用
+## 🧩 新项目接入通用后端底座
 
-账号、OAuth、订阅、积分、支付和 Webhook 属于通用后端底座。新站点只需要复用这些目录，再开发自己的前端页面和业务 feature。
+账号、OAuth、订阅、积分、支付、Webhook 和接口计费属于通用后端底座。新项目只需要复用底座模块，配置自己的 `PROJECT_ID`、套餐、支付平台价格和接口计费规则，然后开发前端页面和业务 feature。
+
+### 1. 复制通用模块
+
+从本项目复制以下目录和文件：
 
 ```text
 db/
@@ -114,14 +118,67 @@ functions/api/credit-purchases/
 functions/api/webhooks/
 ```
 
-业务能力放在：
+不要把具体业务能力放进 `functions/lib/`。业务能力放在：
 
 ```text
 functions/features/
 functions/api/your-feature.js
 ```
 
-### 套餐配置
+### 2. 初始化数据库
+
+新项目可以使用独立 D1，也可以多个项目共用一个 D1。共用 D1 时必须保证每个项目使用独立 `PROJECT_ID`。
+
+```bash
+npx wrangler d1 execute your-db-name --remote --file=schema.sql
+```
+
+当前底座包含 11 张表：
+
+```text
+账号层:
+users / oauth_accounts
+
+配置层:
+subscription_plans / plan_prices / usage_pricing
+
+状态层:
+user_quotas / subscriptions / credit_purchases
+
+审计层:
+payment_events / credit_transactions / usage_logs
+```
+
+### 3. 配置环境变量
+
+每个新项目至少配置：
+
+```bash
+PROJECT_ID=new-site
+APP_URL=https://new-site.com
+JWT_SECRET=your-random-secret
+
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+PAYPAL_ENV=sandbox
+PAYPAL_CLIENT_ID=your-paypal-client-id
+PAYPAL_CLIENT_SECRET=your-paypal-client-secret
+PAYPAL_WEBHOOK_ID=your-paypal-webhook-id
+
+CREDIT_CONSUME_ORDER=monthly,purchased,gifted
+```
+
+Cloudflare Pages Secret 示例：
+
+```bash
+printf 'new-site' | npx wrangler pages secret put PROJECT_ID --project-name=new-site
+printf 'https://new-site.com' | npx wrangler pages secret put APP_URL --project-name=new-site
+printf 'your-random-secret' | npx wrangler pages secret put JWT_SECRET --project-name=new-site
+printf 'monthly,purchased,gifted' | npx wrangler pages secret put CREDIT_CONSUME_ORDER --project-name=new-site
+```
+
+### 4. 配置套餐和支付价格
 
 套餐属于运营数据，按 `project_id` 写入 D1，不需要改接口代码。新站点使用自己的 `PROJECT_ID` 后，插入对应套餐和支付平台价格映射即可。
 
@@ -135,7 +192,9 @@ INSERT OR IGNORE INTO subscription_plans (
 INSERT OR IGNORE INTO plan_prices (
   id, project_id, plan_id, platform, external_id, interval, currency, amount_cents
 ) VALUES
-  ('paypal_pro_monthly', 'new-site', 'pro', 'paypal', 'PAYPAL_PLAN_ID', 'month', 'USD', 1299);
+  ('paypal_pro_monthly', 'new-site', 'pro', 'paypal', 'PAYPAL_PLAN_ID', 'month', 'USD', 1299),
+  ('stripe_pro_monthly', 'new-site', 'pro', 'stripe', 'STRIPE_PRICE_ID', 'month', 'USD', 1299),
+  ('creem_pro_monthly',  'new-site', 'pro', 'creem',  'CREEM_PRICE_ID',  'month', 'USD', 1299);
 ```
 
 字段约定：
@@ -144,7 +203,7 @@ INSERT OR IGNORE INTO plan_prices (
 - `plan_prices.external_id` 存支付平台的 plan / price / product ID。
 - `plan_prices.interval` 使用 `month`、`year`、`one_time`。
 
-### 积分扣减策略
+### 5. 配置接口计费规则
 
 积分扣减分两层：D1 `usage_pricing` 决定本次接口调用应扣多少积分，`CREDIT_CONSUME_ORDER` 决定从哪类余额中扣。
 
@@ -166,8 +225,8 @@ INSERT OR IGNORE INTO plan_prices (
 INSERT OR IGNORE INTO usage_pricing (
   id, project_id, action, variant, credits, cost_estimate_cents, metadata
 ) VALUES
+  ('image_generate_default',      'new-site', 'image.generate',    'default',   5, 3,  '{"model":"default"}'),
   ('background_remove_photoroom', 'new-site', 'background.remove', 'photoroom', 2, 2,  '{"provider":"photoroom"}'),
-  ('background_remove_bria',      'new-site', 'background.remove', 'bria',      2, 2,  '{"provider":"bria"}'),
   ('background_remove_removebg',  'new-site', 'background.remove', 'removebg',  10, 20, '{"provider":"remove.bg"}');
 ```
 
@@ -176,28 +235,76 @@ INSERT OR IGNORE INTO usage_pricing (
 - 如果没有精确 `variant`，匹配 `variant = 'default'` 的动作默认价。
 - 数据库没有规则时才使用代码内置默认值，避免开发环境空库不可用；生产应显式写入 `usage_pricing`。
 
-业务接口只需要声明动作和变体：
+### 6. 业务接口接入扣费
+
+业务接口只需要声明动作和变体，不要自己写死扣费数字。
 
 ```js
+import { getUser } from '../lib/auth.js';
+import { getProjectId } from '../lib/core/projects.js';
 import { resolveUsageCharge } from '../lib/billing/policies.js';
-import { consumeCredit, getCreditConsumeOrder } from '../lib/credits/service.js';
+import {
+  consumeCredit,
+  getCreditConsumeOrder,
+  getUserCreditBalance,
+  refundCredit,
+  updateUsageLog,
+} from '../lib/credits/service.js';
 
-const charge = await resolveUsageCharge(env.DB, {
-  projectId,
-  action: 'background.remove',
-  variant: provider,
-});
+export async function onRequestPost({ request, env }) {
+  const user = await getUser(request, env);
+  if (!user) {
+    return Response.json({ success: false, code: 'LOGIN_REQUIRED' }, { status: 401 });
+  }
 
-await consumeCredit(env.DB, {
-  userId,
-  projectId,
-  jobId,
-  credits: charge.credits,
-  consumeOrder: getCreditConsumeOrder(env),
-});
+  const projectId = getProjectId(env);
+  const jobId = crypto.randomUUID();
+  const charge = await resolveUsageCharge(env.DB, {
+    projectId,
+    action: 'image.generate',
+    variant: 'default',
+  });
+
+  const balance = await getUserCreditBalance(env.DB, { userId: user.sub, projectId });
+  if (!balance.allowed || balance.remaining < charge.credits) {
+    return Response.json({
+      success: false,
+      code: 'NO_CREDITS',
+      required: charge.credits,
+      remaining: balance.remaining,
+    }, { status: 403 });
+  }
+
+  const deduction = await consumeCredit(env.DB, {
+    userId: user.sub,
+    projectId,
+    jobId,
+    credits: charge.credits,
+    consumeOrder: getCreditConsumeOrder(env),
+  });
+
+  try {
+    const result = await runYourFeature(request);
+    await updateUsageLog(env.DB, {
+      jobId,
+      metadata: {
+        usagePricingKey: charge.pricingKey,
+        usageAction: charge.action,
+        usageVariant: charge.variant,
+        costEstimateCents: charge.costEstimateCents,
+      },
+    });
+    return Response.json({ success: true, result, creditsRemaining: deduction.remaining });
+  } catch (error) {
+    await refundCredit(env.DB, { userId: user.sub, projectId, jobId });
+    throw error;
+  }
+}
 ```
 
-余额扣减顺序通过环境变量独立配置。
+### 7. 配置余额扣减顺序
+
+余额扣减顺序通过环境变量独立配置，不需要改代码。
 
 ```bash
 CREDIT_CONSUME_ORDER=monthly,purchased,gifted
@@ -221,7 +328,29 @@ CREDIT_CONSUME_ORDER=gifted,monthly,purchased
 CREDIT_CONSUME_ORDER=purchased,gifted,monthly
 ```
 
-### 单独购买积分包
+### 8. 前端可直接复用的接口
+
+通用后端已经提供这些 REST 风格接口：
+
+```text
+GET  /api/oauth/google/authorization
+GET  /api/oauth/google/callback
+GET  /api/me
+GET  /api/me/credits
+GET  /api/plan-prices?platform=paypal
+POST /api/subscriptions
+POST /api/credit-purchases/paypal-orders
+POST /api/credit-purchases/paypal-orders/:orderId/capture
+POST /api/webhooks/paypal
+```
+
+新项目前端通常只需要：
+- 登录按钮跳转 `/api/oauth/google/authorization`。
+- 个人中心请求 `/api/me` 和 `/api/me/credits`。
+- 定价页请求 `/api/plan-prices?platform=paypal`。
+- 业务页面调用自己的 `/api/your-feature`。
+
+### 9. 单独购买积分包
 
 当前积分包配置在 `functions/lib/payments/credit-purchases.js` 的 `getCreditPackages()` 中：
 
@@ -236,6 +365,18 @@ export function getCreditPackages() {
 ```
 
 新站点如果积分包不同，先调整这里。后续如果需要后台化管理，可以新增 `credit_packages` 配置表，把积分包从代码迁移到 D1。
+
+### 10. 接入检查清单
+
+上线前确认：
+- `PROJECT_ID` 已改为新项目 ID，且数据库配置数据也使用同一个 `project_id`。
+- `subscription_plans` 至少包含 `free` 和一个付费套餐。
+- `plan_prices.external_id` 已替换为真实 PayPal / Stripe / Creem 平台 ID。
+- `usage_pricing` 已写入业务接口动作的计费规则。
+- `CREDIT_CONSUME_ORDER` 已按产品策略配置。
+- 支付 Webhook 已配置到生产域名。
+- 业务接口失败时会调用 `refundCredit` 退回已扣积分。
+- 前端只展示价格和发起支付，不直接给用户加积分。
 
 ### 3. 开发模式
 
