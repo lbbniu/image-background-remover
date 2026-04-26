@@ -1,6 +1,7 @@
 import { getUser } from '../../lib/auth.js';
+import { getProjectId } from '../../lib/core/projects.js';
+import { createPendingCreditPurchase, getCreditPackages } from '../../lib/payments/credit-purchases.js';
 import { createOrder } from '../../lib/paypal.js';
-import { createPendingCreditPurchase, getCreditPackages, getProjectId } from '../../lib/quota.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;

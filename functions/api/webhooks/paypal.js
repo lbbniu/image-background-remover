@@ -1,14 +1,13 @@
 import { verifyWebhookSignature } from '../../lib/paypal.js';
+import { getProjectId } from '../../lib/core/projects.js';
+import { completeCreditPurchase } from '../../lib/payments/credit-purchases.js';
+import { markPaymentEventProcessed, recordPaymentEvent } from '../../lib/payments/events.js';
 import {
   cancelUserSubscription,
-  completeCreditPurchase,
-  getProjectId,
   getSubscriptionOwner,
-  markPaymentEventProcessed,
-  recordPaymentEvent,
   renewSubscriptionPeriod,
   updateSubscriptionStatus,
-} from '../../lib/quota.js';
+} from '../../lib/subscriptions/service.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;

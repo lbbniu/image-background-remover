@@ -1,6 +1,6 @@
 import { signJWT, setAuthCookie } from '../../../lib/auth.js';
+import { getProjectId } from '../../../lib/core/projects.js';
 import { findOrCreateOAuthUser } from '../../../lib/oauth.js';
-import { getProjectId } from '../../../lib/quota.js';
 import { getAppOrigin, getOAuthRedirectUri } from '../../../lib/url.js';
 
 export async function onRequestGet(context) {

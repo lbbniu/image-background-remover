@@ -1,6 +1,8 @@
 import { getUser } from '../lib/auth.js';
+import { getProjectId } from '../lib/core/projects.js';
 import { getSubscriptionDetails } from '../lib/paypal.js';
-import { activateUserSubscription, getActiveSubscription, getPlanByPriceExternalId, getProjectId } from '../lib/quota.js';
+import { getPlanByPriceExternalId } from '../lib/plans/service.js';
+import { activateUserSubscription, getActiveSubscription } from '../lib/subscriptions/service.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;

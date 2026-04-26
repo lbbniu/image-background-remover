@@ -1,5 +1,11 @@
 import { getUser } from '../lib/auth.js';
-import { consumeCredit, getCreditConsumeOrder, getProjectId, getUserCreditBalance, refundCredit, updateUsageLog } from '../lib/quota.js';
+import {
+  getBackgroundRemovalCreditCost,
+  removeImageBackground,
+  selectBackgroundRemovalProvider,
+} from '../features/background-removal.js';
+import { getProjectId } from '../lib/core/projects.js';
+import { consumeCredit, getCreditConsumeOrder, getUserCreditBalance, refundCredit, updateUsageLog } from '../lib/credits/service.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);
@@ -23,11 +29,6 @@ function generateJobId() {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
 }
 
-function getRemoveBgCreditCost(env) {
-  const configured = Number(env.REMOVE_BG_CREDIT_COST || 10);
-  return Number.isFinite(configured) && configured > 0 ? Math.ceil(configured) : 10;
-}
-
 export async function onRequestPost(context) {
   const { request, env } = context;
   const jobId = generateJobId();
@@ -43,7 +44,8 @@ export async function onRequestPost(context) {
     }
 
     const projectId = getProjectId(env);
-    const internalCreditCost = getRemoveBgCreditCost(env);
+    const provider = selectBackgroundRemovalProvider(env);
+    const internalCreditCost = getBackgroundRemovalCreditCost(env, provider);
 
     // 2. 检查额度（需要登录才能处理）
     if (!env.DB) {
@@ -84,14 +86,6 @@ export async function onRequestPost(context) {
       );
     }
 
-    const apiKey = env.REMOVE_BG_API_KEY;
-    if (!apiKey) {
-      return Response.json(
-        { success: false, error: 'API key not configured' },
-        { status: 500 }
-      );
-    }
-
     // 3. 扣减额度
     const deductResult = await consumeCredit(env.DB, {
       userId: user.sub,
@@ -108,20 +102,11 @@ export async function onRequestPost(context) {
       }, { status: 403 });
     }
 
-    // 4. 调用 Remove.bg API
-    const formData = new FormData();
-    formData.append('image_file', new Blob([bytes]), 'image.png');
-    formData.append('size', 'auto');
-
-    const startTime = Date.now();
-    const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-      method: 'POST',
-      headers: { 'X-Api-Key': apiKey },
-      body: formData,
-    });
-    const processingTime = Date.now() - startTime;
-
-    if (!response.ok) {
+    // 4. 调用低成本优先的背景移除 provider
+    let removal;
+    try {
+      removal = await removeImageBackground(env, bytes, provider);
+    } catch (providerError) {
       // API 失败，尝试退还额度
       try {
         await refundCredit(env.DB, { userId: user.sub, projectId, jobId });
@@ -129,23 +114,21 @@ export async function onRequestPost(context) {
         console.error('Failed to refund credit:', e);
       }
 
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.errors?.[0]?.title || `API error: ${response.status}`);
+      throw providerError;
     }
 
-    const resultBuffer = await response.arrayBuffer();
-    const resultBase64 = arrayBufferToBase64(resultBuffer);
-    const removeBgCreditsCharged = response.headers.get('X-Credits-Charged');
+    const resultBase64 = arrayBufferToBase64(removal.buffer);
 
     // 更新使用日志的处理时间
     try {
       await updateUsageLog(env.DB, {
         jobId,
         metadata: {
-          provider: 'remove.bg',
-          providerCreditsCharged: removeBgCreditsCharged ? Number(removeBgCreditsCharged) : null,
-          internalCreditsCharged: internalCreditCost,
-          processingTimeMs: processingTime,
+          provider: removal.provider,
+          providerCreditsCharged: removal.providerCreditsCharged,
+          providerCostEstimateCents: removal.estimatedCostCents,
+          internalCreditsCharged: removal.internalCreditCost,
+          processingTimeMs: removal.processingTimeMs,
         },
       });
     } catch (e) {
@@ -157,6 +140,7 @@ export async function onRequestPost(context) {
       image: `data:image/png;base64,${resultBase64}`,
       creditsRemaining: deductResult.remaining,
       creditsCharged: internalCreditCost,
+      provider: removal.provider,
     });
 
   } catch (error) {

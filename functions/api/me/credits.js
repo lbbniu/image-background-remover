@@ -1,5 +1,7 @@
 import { getUser } from '../../lib/auth.js';
-import { getPlan, getProjectId, getUserCreditBalance } from '../../lib/quota.js';
+import { getProjectId } from '../../lib/core/projects.js';
+import { getUserCreditBalance } from '../../lib/credits/service.js';
+import { getPlan } from '../../lib/plans/service.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;

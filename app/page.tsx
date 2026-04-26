@@ -260,6 +260,9 @@ export default function Home() {
                     <span className="mx-2">/</span>
                     {t.home.click}
                   </p>
+                  <p className="text-xs text-gray-500 mb-6 max-w-md mx-auto">
+                    {t.home.cloudCostHint}
+                  </p>
                   
                   <div className="flex flex-wrap justify-center gap-3">
                     <span className="px-3 py-1.5 bg-gray-800/50 rounded-full text-sm text-gray-400 border border-gray-700">JPG</span>
