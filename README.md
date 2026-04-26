@@ -337,6 +337,7 @@ GET  /api/oauth/google/authorization
 GET  /api/oauth/google/callback
 GET  /api/me
 GET  /api/me/credits
+GET  /api/me/credits/transactions
 GET  /api/plan-prices?platform=paypal
 POST /api/subscriptions
 POST /api/credit-purchases/paypal-orders
@@ -347,6 +348,7 @@ POST /api/webhooks/paypal
 新项目前端通常只需要：
 - 登录按钮跳转 `/api/oauth/google/authorization`。
 - 个人中心请求 `/api/me` 和 `/api/me/credits`。
+- 积分明细请求 `/api/me/credits/transactions?limit=20&offset=0`。
 - 定价页请求 `/api/plan-prices?platform=paypal`。
 - 业务页面调用自己的 `/api/your-feature`。
 

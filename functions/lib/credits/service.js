@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import {
   creditTransactions,
@@ -49,6 +49,24 @@ function toCreditBalance(quota, subscription) {
     periodEnd: quota.periodEnd,
     totalUsed: quota.totalUsed || 0,
   };
+}
+
+function parseMetadata(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function toPositiveInteger(value, fallback, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  const integer = Math.floor(parsed);
+  return max ? Math.min(integer, max) : integer;
 }
 
 export async function ensureUserQuota(d1, { userId, projectId, giftedCredits = 3 }) {
@@ -198,6 +216,60 @@ export async function getUserCreditBalance(d1, { userId, projectId }) {
   const refreshed = await refreshSubscriptionPeriod(d1, quota, subscription);
 
   return toCreditBalance(refreshed, subscription);
+}
+
+export async function listUserCreditTransactions(d1, {
+  userId,
+  projectId,
+  type,
+  source,
+  limit = 20,
+  offset = 0,
+}) {
+  const db = getDb(d1);
+  const pageLimit = toPositiveInteger(limit, 20, 100) || 20;
+  const pageOffset = toPositiveInteger(offset, 0);
+  const conditions = [
+    eq(creditTransactions.userId, Number(userId)),
+    eq(creditTransactions.projectId, projectId),
+  ];
+
+  if (type) conditions.push(eq(creditTransactions.type, type));
+  if (source) conditions.push(eq(creditTransactions.source, source));
+
+  const where = and(...conditions);
+  const rows = await db
+    .select()
+    .from(creditTransactions)
+    .where(where)
+    .orderBy(desc(creditTransactions.createdAt), desc(creditTransactions.id))
+    .limit(pageLimit)
+    .offset(pageOffset);
+
+  const totalRow = await db
+    .select({ count: sql`COUNT(*)` })
+    .from(creditTransactions)
+    .where(where)
+    .get();
+
+  return {
+    items: rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      source: row.source,
+      amount: row.amount,
+      platform: row.platform,
+      externalId: row.externalId,
+      metadata: parseMetadata(row.metadata),
+      createdAt: row.createdAt,
+    })),
+    pagination: {
+      limit: pageLimit,
+      offset: pageOffset,
+      total: Number(totalRow?.count || 0),
+      hasMore: pageOffset + rows.length < Number(totalRow?.count || 0),
+    },
+  };
 }
 
 async function consumeFromSource(db, { userId, projectId, credits, source }) {
