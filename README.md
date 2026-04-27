@@ -104,24 +104,29 @@ printf 'your_remove_bg_api_key_here' | npx wrangler pages secret put REMOVE_BG_A
 ```text
 db/
 schema.sql
-functions/lib/core/
-functions/lib/credits/
-functions/lib/payments/
-functions/lib/plans/
-functions/lib/subscriptions/
-functions/lib/oauth.js
+foundation/modules/auth/
+foundation/modules/core/
+foundation/modules/billing/
+foundation/modules/credits/
+foundation/modules/payments/
+foundation/modules/plans/
+foundation/modules/subscriptions/
+foundation/integrations/
 functions/api/oauth/
 functions/api/me/
+functions/api/credit-packages.js
 functions/api/plan-prices.js
 functions/api/subscriptions.js
 functions/api/credit-purchases/
 functions/api/webhooks/
 ```
 
-不要把具体业务能力放进 `functions/lib/`。业务能力放在：
+`functions/api/` 只作为 Cloudflare Pages Functions 的 HTTP 路由入口，尽量保持薄层。不要把通用能力放进 `functions/`，通用底座放进 `foundation/modules/`，第三方适配放进 `foundation/integrations/`。
+
+具体业务能力放在：
 
 ```text
-functions/features/
+foundation/features/
 functions/api/your-feature.js
 ```
 
@@ -240,16 +245,16 @@ INSERT OR IGNORE INTO usage_pricing (
 业务接口只需要声明动作和变体，不要自己写死扣费数字。
 
 ```js
-import { getUser } from '../lib/auth.js';
-import { getProjectId } from '../lib/core/projects.js';
-import { resolveUsageCharge } from '../lib/billing/policies.js';
+import { getUser } from '../../foundation/modules/auth/session.js';
+import { getProjectId } from '../../foundation/modules/core/projects.js';
+import { resolveUsageCharge } from '../../foundation/modules/billing/policies.js';
 import {
   consumeCredit,
   getCreditConsumeOrder,
   getUserCreditBalance,
   refundCredit,
   updateUsageLog,
-} from '../lib/credits/service.js';
+} from '../../foundation/modules/credits/service.js';
 
 export async function onRequestPost({ request, env }) {
   const user = await getUser(request, env);

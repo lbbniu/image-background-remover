@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveUsageCharge } from '../functions/lib/billing/policies.js';
+import { resolveUsageCharge } from '../foundation/modules/billing/policies.js';
 import { createSchemaBackedD1 } from './d1-test-db.mjs';
 
 test('resolves usage charge from database by project, action, and variant', async () => {
@@ -120,4 +120,3 @@ test('invalid database pricing is rejected', async () => {
     d1.close();
   }
 });
-

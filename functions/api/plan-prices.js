@@ -1,5 +1,5 @@
-import { getProjectId } from '../lib/core/projects.js';
-import { listPlanPrices } from '../lib/plans/service.js';
+import { getProjectId } from '../../foundation/modules/core/projects.js';
+import { listPlanPrices } from '../../foundation/modules/plans/service.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;

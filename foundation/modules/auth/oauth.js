@@ -1,8 +1,8 @@
 // 通用 OAuth 用户处理（支持 Google / GitHub / 微信等多平台）
 import { and, eq, sql } from 'drizzle-orm';
-import { getDb } from '../../db/client.js';
-import { oauthAccounts, users } from '../../db/schema.js';
-import { ensureUserQuota } from './credits/service.js';
+import { getDb } from '../../../db/client.js';
+import { oauthAccounts, users } from '../../../db/schema.js';
+import { ensureUserQuota } from '../credits/service.js';
 
 /**
  * 查找或创建 OAuth 用户

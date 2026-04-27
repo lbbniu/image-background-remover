@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signJWT } from '../functions/lib/auth.js';
+import { signJWT } from '../foundation/modules/auth/session.js';
 import { onRequestGet as transactionsHandler } from '../functions/api/me/credits/transactions.js';
 import { createSchemaBackedD1 } from './d1-test-db.mjs';
 
@@ -192,4 +192,3 @@ test('credit transactions endpoint rejects invalid filters', async () => {
     d1.close();
   }
 });
-

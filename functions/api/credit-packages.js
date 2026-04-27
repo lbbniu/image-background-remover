@@ -1,5 +1,5 @@
-import { getProjectId } from '../lib/core/projects.js';
-import { listCreditPackages } from '../lib/payments/credit-purchases.js';
+import { getProjectId } from '../../foundation/modules/core/projects.js';
+import { listCreditPackages } from '../../foundation/modules/payments/credit-purchases.js';
 
 export async function onRequestGet({ request, env }) {
   if (!env.DB) {
@@ -15,4 +15,3 @@ export async function onRequestGet({ request, env }) {
 
   return Response.json({ success: true, packages });
 }
-

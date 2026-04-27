@@ -1,7 +1,7 @@
-import { getUser } from '../../../../lib/auth.js';
-import { getProjectId } from '../../../../lib/core/projects.js';
-import { captureOrder } from '../../../../lib/paypal.js';
-import { completeCreditPurchase, getCreditPurchaseByExternalId } from '../../../../lib/payments/credit-purchases.js';
+import { getUser } from '../../../../../foundation/modules/auth/session.js';
+import { getProjectId } from '../../../../../foundation/modules/core/projects.js';
+import { captureOrder } from '../../../../../foundation/integrations/paypal.js';
+import { completeCreditPurchase, getCreditPurchaseByExternalId } from '../../../../../foundation/modules/payments/credit-purchases.js';
 
 export async function onRequestPost(context) {
   const { request, env, params } = context;

@@ -1,7 +1,7 @@
-import { signJWT, setAuthCookie } from '../../../lib/auth.js';
-import { getProjectId } from '../../../lib/core/projects.js';
-import { findOrCreateOAuthUser } from '../../../lib/oauth.js';
-import { getAppOrigin, getOAuthRedirectUri } from '../../../lib/url.js';
+import { signJWT, setAuthCookie } from '../../../../foundation/modules/auth/session.js';
+import { getProjectId } from '../../../../foundation/modules/core/projects.js';
+import { findOrCreateOAuthUser } from '../../../../foundation/modules/auth/oauth.js';
+import { getAppOrigin, getOAuthRedirectUri } from '../../../../foundation/modules/core/url.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;

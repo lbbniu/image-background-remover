@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { selectBackgroundRemovalProvider } from '../functions/features/background-removal.js';
+import { selectBackgroundRemovalProvider } from '../foundation/features/background-removal.js';
 
 test('auto provider prefers low-cost Photoroom when configured', () => {
   const env = {

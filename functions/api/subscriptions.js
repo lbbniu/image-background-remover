@@ -1,8 +1,8 @@
-import { getUser } from '../lib/auth.js';
-import { getProjectId } from '../lib/core/projects.js';
-import { getSubscriptionDetails } from '../lib/paypal.js';
-import { getPlanByPriceExternalId } from '../lib/plans/service.js';
-import { activateUserSubscription, getActiveSubscription } from '../lib/subscriptions/service.js';
+import { getUser } from '../../foundation/modules/auth/session.js';
+import { getProjectId } from '../../foundation/modules/core/projects.js';
+import { getSubscriptionDetails } from '../../foundation/integrations/paypal.js';
+import { getPlanByPriceExternalId } from '../../foundation/modules/plans/service.js';
+import { activateUserSubscription, getActiveSubscription } from '../../foundation/modules/subscriptions/service.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;

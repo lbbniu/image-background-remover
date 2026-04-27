@@ -1,4 +1,4 @@
-import { clearAuthCookie, getUser } from '../../lib/auth.js';
+import { clearAuthCookie, getUser } from '../../../foundation/modules/auth/session.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;

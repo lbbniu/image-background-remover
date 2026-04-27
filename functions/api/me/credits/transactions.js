@@ -1,6 +1,6 @@
-import { getUser } from '../../../lib/auth.js';
-import { getProjectId } from '../../../lib/core/projects.js';
-import { listUserCreditTransactions } from '../../../lib/credits/service.js';
+import { getUser } from '../../../../foundation/modules/auth/session.js';
+import { getProjectId } from '../../../../foundation/modules/core/projects.js';
+import { listUserCreditTransactions } from '../../../../foundation/modules/credits/service.js';
 
 const ALLOWED_TYPES = new Set(['gift', 'purchase', 'subscription', 'consume', 'refund', 'adjustment']);
 const ALLOWED_SOURCES = new Set(['monthly', 'purchased', 'gifted']);
@@ -48,4 +48,3 @@ export async function onRequestGet({ request, env }) {
     return Response.json({ error: 'Failed to query credit transactions' }, { status: 500 });
   }
 }
-
