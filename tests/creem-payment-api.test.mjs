@@ -700,6 +700,50 @@ test('Creem webhook validates database binding and unsigned development mode', a
   }
 });
 
+test('Creem webhook marks processing failures as failed for retry', async () => {
+  const d1 = createSchemaBackedD1();
+  let prepareCount = 0;
+  const failingDb = new Proxy(d1, {
+    get(target, prop, receiver) {
+      if (prop === 'prepare') {
+        return (...args) => {
+          prepareCount += 1;
+          if (prepareCount === 2) {
+            throw new Error('simulated processing failure');
+          }
+          return target.prepare(...args);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+
+  try {
+    const response = await creemWebhookHandler({
+      request: await signedWebhookRequest({
+        id: 'evt_failed_retry',
+        eventType: 'checkout.completed',
+        object: {
+          id: 'ch_failed_retry',
+          object: 'checkout',
+          metadata: { kind: 'subscription', userId: '1', priceExternalId: 'creem_mock_pro_monthly' },
+          subscription: { id: 'sub_failed_retry' },
+          product: { id: 'creem_mock_pro_monthly' },
+        },
+      }),
+      env: envFor(failingDb),
+    });
+    const body = await response.json();
+    const event = await d1.prepare('SELECT status FROM payment_events WHERE external_id = ?').bind('evt_failed_retry').get();
+
+    assert.equal(response.status, 200);
+    assert.match(body.error, /simulated processing failure/);
+    assert.equal(event.status, 'failed');
+  } finally {
+    d1.close();
+  }
+});
+
 test('Creem webhook rejects invalid signature', async () => {
   const d1 = createSchemaBackedD1();
   try {

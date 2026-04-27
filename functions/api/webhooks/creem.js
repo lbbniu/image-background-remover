@@ -136,6 +136,8 @@ async function handleSubscriptionRevoke(d1, { projectId, object, status }) {
 
 export async function onRequestPost({ request, env }) {
   const projectId = getProjectId(env);
+  let eventId = null;
+  let eventRecorded = false;
 
   try {
     const rawBody = await request.text();
@@ -154,7 +156,7 @@ export async function onRequestPost({ request, env }) {
     const body = JSON.parse(rawBody);
     const eventType = body.eventType || body.type;
     const object = body.object || body.data || {};
-    const eventId = body.id || `${eventType}:${getCheckoutId(object) || getSubscriptionId(object) || crypto.randomUUID()}`;
+    eventId = body.id || `${eventType}:${getCheckoutId(object) || getSubscriptionId(object) || crypto.randomUUID()}`;
 
     const event = await recordPaymentEvent(env.DB, {
       projectId,
@@ -165,6 +167,7 @@ export async function onRequestPost({ request, env }) {
       resourceId: getCheckoutId(object) || getSubscriptionId(object),
       payload: body,
     });
+    eventRecorded = true;
     if (!event.inserted && event.status !== 'failed') {
       return Response.json({ received: true, duplicate: true });
     }
@@ -197,6 +200,13 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ received: true });
   } catch (error) {
     console.error('Creem webhook error:', error);
+    if (env.DB && eventRecorded && eventId) {
+      try {
+        await markPaymentEventProcessed(env.DB, { platform: 'creem', externalId: eventId, status: 'failed' });
+      } catch (markError) {
+        console.error('Failed to mark Creem webhook event as failed:', markError);
+      }
+    }
     return Response.json({ received: true, error: error.message });
   }
 }

@@ -11,6 +11,8 @@ import {
 export async function onRequestPost(context) {
   const { request, env } = context;
   const projectId = getProjectId(env);
+  let eventId = null;
+  let eventRecorded = false;
 
   try {
     const rawBody = await request.text();
@@ -25,7 +27,7 @@ export async function onRequestPost(context) {
     const body = JSON.parse(rawBody);
     const eventType = body.event_type;
     const resource = body.resource;
-    const eventId = body.id || `${eventType}:${resource?.id || crypto.randomUUID()}`;
+    eventId = body.id || `${eventType}:${resource?.id || crypto.randomUUID()}`;
 
     if (!env.DB) {
       return Response.json({ error: 'Database not configured' }, { status: 500 });
@@ -40,6 +42,7 @@ export async function onRequestPost(context) {
       resourceId: resource?.id,
       payload: body,
     });
+    eventRecorded = true;
     if (!event.inserted && event.status !== 'failed') {
       return Response.json({ received: true, duplicate: true });
     }
@@ -157,6 +160,13 @@ export async function onRequestPost(context) {
     return Response.json({ received: true });
   } catch (error) {
     console.error('PayPal webhook error:', error);
+    if (env.DB && eventRecorded && eventId) {
+      try {
+        await markPaymentEventProcessed(env.DB, { platform: 'paypal', externalId: eventId, status: 'failed' });
+      } catch (markError) {
+        console.error('Failed to mark PayPal webhook event as failed:', markError);
+      }
+    }
     return Response.json({ received: true, error: error.message });
   }
 }
