@@ -83,7 +83,7 @@ const en = {
     paymentSuccess: 'Payment successful!',
     paymentFailed: 'Payment failed. Please try again.',
     subscriptionSuccess: 'Subscription activated!',
-    subscriptionCheckout: 'Complete your subscription with PayPal',
+    subscriptionCheckout: 'Complete your subscription',
     tryAgain: 'Try Again',
     comingSoon: 'Coming Soon',
     faqTitle: 'Frequently Asked Questions',

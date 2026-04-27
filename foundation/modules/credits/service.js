@@ -132,44 +132,36 @@ async function refreshSubscriptionPeriod(d1, quota, subscription) {
       .get();
     const next = nextPeriodFrom(periodEnd);
 
-    await db
-      .update(userQuotas)
-      .set({
-        periodUsed: 0,
-        creditsMonthly: plan?.creditsMonthly || 0,
-        periodStart: next.periodStart,
-        periodEnd: next.periodEnd,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(eq(userQuotas.userId, quota.userId), eq(userQuotas.projectId, quota.projectId)))
-      .run();
-
-    await db
-      .update(subscriptions)
-      .set({
-        currentPeriodStart: next.periodStart,
-        currentPeriodEnd: next.periodEnd,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(eq(subscriptions.id, subscription.id))
-      .run();
-
-    await db
-      .insert(creditTransactions)
-      .values({
-        userId: quota.userId,
-        projectId: quota.projectId,
-        type: 'subscription',
-        source: 'monthly',
-        amount: plan?.creditsMonthly || 0,
-        platform: subscription.platform,
-        externalId: `subscription:${subscription.externalId}:${next.periodStart}`,
-        metadata: JSON.stringify({ planId: subscription.planId }),
-      })
-      .onConflictDoNothing({
-        target: [creditTransactions.projectId, creditTransactions.platform, creditTransactions.externalId],
-      })
-      .run();
+    await d1.batch([
+      d1.prepare(`
+        UPDATE user_quotas
+        SET period_used = 0,
+            credits_monthly = ?,
+            period_start = ?,
+            period_end = ?,
+            updated_at = datetime('now')
+        WHERE user_id = ? AND project_id = ?
+      `).bind(plan?.creditsMonthly || 0, next.periodStart, next.periodEnd, quota.userId, quota.projectId),
+      d1.prepare(`
+        UPDATE subscriptions
+        SET current_period_start = ?,
+            current_period_end = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(next.periodStart, next.periodEnd, subscription.id),
+      d1.prepare(`
+        INSERT OR IGNORE INTO credit_transactions
+          (user_id, project_id, type, source, amount, platform, external_id, metadata)
+        VALUES (?, ?, 'subscription', 'monthly', ?, ?, ?, ?)
+      `).bind(
+        quota.userId,
+        quota.projectId,
+        plan?.creditsMonthly || 0,
+        subscription.platform,
+        `subscription:${subscription.externalId}:${next.periodStart}`,
+        JSON.stringify({ planId: subscription.planId }),
+      ),
+    ]);
 
     return {
       ...quota,
@@ -181,21 +173,21 @@ async function refreshSubscriptionPeriod(d1, quota, subscription) {
   }
 
   if (subscription?.status === 'cancelled') {
-    await db
-      .update(userQuotas)
-      .set({
-        creditsMonthly: 0,
-        periodUsed: 0,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(eq(userQuotas.userId, quota.userId), eq(userQuotas.projectId, quota.projectId)))
-      .run();
-
-    await db
-      .update(subscriptions)
-      .set({ status: 'expired', updatedAt: sql`datetime('now')` })
-      .where(eq(subscriptions.id, subscription.id))
-      .run();
+    await d1.batch([
+      d1.prepare(`
+        UPDATE user_quotas
+        SET credits_monthly = 0,
+            period_used = 0,
+            updated_at = datetime('now')
+        WHERE user_id = ? AND project_id = ?
+      `).bind(quota.userId, quota.projectId),
+      d1.prepare(`
+        UPDATE subscriptions
+        SET status = 'expired',
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(subscription.id),
+    ]);
 
     return { ...quota, creditsMonthly: 0, periodUsed: 0 };
   }
@@ -272,61 +264,59 @@ export async function listUserCreditTransactions(d1, {
   };
 }
 
-async function consumeFromSource(db, { userId, projectId, credits, source }) {
+function consumeStatement(d1, { userId, projectId, credits, source }) {
   if (source === 'monthly') {
-    return db
-      .update(userQuotas)
-      .set({
-        periodUsed: sql`${userQuotas.periodUsed} + ${credits}`,
-        totalUsed: sql`${userQuotas.totalUsed} + ${credits}`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(
-        eq(userQuotas.userId, Number(userId)),
-        eq(userQuotas.projectId, projectId),
-        sql`(${userQuotas.creditsMonthly} - ${userQuotas.periodUsed}) >= ${credits}`,
-      ))
-      .run();
+    return d1.prepare(`
+      UPDATE user_quotas
+      SET period_used = period_used + ?,
+          total_used = total_used + ?,
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND (credits_monthly - period_used) >= ?
+    `).bind(credits, credits, Number(userId), projectId, credits);
   }
 
   if (source === 'purchased') {
-    return db
-      .update(userQuotas)
-      .set({
-        creditsPurchased: sql`${userQuotas.creditsPurchased} - ${credits}`,
-        totalUsed: sql`${userQuotas.totalUsed} + ${credits}`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(
-        eq(userQuotas.userId, Number(userId)),
-        eq(userQuotas.projectId, projectId),
-        sql`${userQuotas.creditsPurchased} >= ${credits}`,
-      ))
-      .run();
+    return d1.prepare(`
+      UPDATE user_quotas
+      SET credits_purchased = credits_purchased - ?,
+          total_used = total_used + ?,
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND credits_purchased >= ?
+    `).bind(credits, credits, Number(userId), projectId, credits);
   }
 
   if (source === 'gifted') {
-    return db
-      .update(userQuotas)
-      .set({
-        creditsGifted: sql`${userQuotas.creditsGifted} - ${credits}`,
-        totalUsed: sql`${userQuotas.totalUsed} + ${credits}`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(
-        eq(userQuotas.userId, Number(userId)),
-        eq(userQuotas.projectId, projectId),
-        sql`${userQuotas.creditsGifted} >= ${credits}`,
-      ))
-      .run();
+    return d1.prepare(`
+      UPDATE user_quotas
+      SET credits_gifted = credits_gifted - ?,
+          total_used = total_used + ?,
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND credits_gifted >= ?
+    `).bind(credits, credits, Number(userId), projectId, credits);
   }
 
-  return { meta: { changes: 0 } };
+  return null;
 }
 
 export async function consumeCredit(d1, { userId, projectId, jobId, credits = 1, consumeOrder }) {
   const db = getDb(d1);
   await ensureUserQuota(d1, { userId, projectId });
+
+  const existingUsage = await db
+    .select()
+    .from(usageLogs)
+    .where(eq(usageLogs.jobId, jobId))
+    .get();
+  if (existingUsage?.status === 'success') {
+    const updated = await getUserCreditBalance(d1, { userId, projectId });
+    return { success: true, remaining: updated.remaining, source: existingUsage.source, idempotent: true };
+  }
+  if (existingUsage) {
+    return { success: false, error: `job_${existingUsage.status || 'exists'}`, remaining: 0 };
+  }
 
   const quota = await db
     .select()
@@ -339,8 +329,44 @@ export async function consumeCredit(d1, { userId, projectId, jobId, credits = 1,
   let source;
   let result = { meta: { changes: 0 } };
   for (const candidate of consumeOrder || ['monthly', 'purchased', 'gifted']) {
-    result = await consumeFromSource(db, { userId, projectId, credits, source: candidate });
-    if (result.meta?.changes) {
+    const statement = consumeStatement(d1, { userId, projectId, credits, source: candidate });
+    if (!statement) continue;
+
+    const [updateResult] = await d1.batch([
+      statement,
+      d1.prepare(`
+        INSERT OR IGNORE INTO usage_logs
+          (user_id, project_id, job_id, credits_used, source, status)
+        SELECT ?, ?, ?, ?, ?, 'success'
+        WHERE changes() > 0
+      `).bind(Number(userId), projectId, jobId, credits, candidate),
+      d1.prepare(`
+        INSERT OR IGNORE INTO credit_transactions
+          (user_id, project_id, type, source, amount, platform, external_id)
+        SELECT ?, ?, 'consume', ?, ?, 'internal', ?
+        WHERE EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ?
+            AND user_id = ?
+            AND project_id = ?
+            AND status = 'success'
+            AND source = ?
+        )
+      `).bind(
+        Number(userId),
+        projectId,
+        candidate,
+        -credits,
+        jobId,
+        jobId,
+        Number(userId),
+        projectId,
+        candidate,
+      ),
+    ]);
+
+    result = updateResult;
+    if (updateResult.meta?.changes) {
       source = candidate;
       break;
     }
@@ -349,27 +375,6 @@ export async function consumeCredit(d1, { userId, projectId, jobId, credits = 1,
   if (!result.meta?.changes) {
     return { success: false, error: 'no_credits', remaining: 0 };
   }
-
-  await db
-    .insert(usageLogs)
-    .values({ userId: Number(userId), projectId, jobId, creditsUsed: credits, source, status: 'success' })
-    .run();
-
-  await db
-    .insert(creditTransactions)
-    .values({
-      userId: Number(userId),
-      projectId,
-      type: 'consume',
-      source,
-      amount: -credits,
-      platform: 'internal',
-      externalId: jobId,
-    })
-    .onConflictDoNothing({
-      target: [creditTransactions.projectId, creditTransactions.platform, creditTransactions.externalId],
-    })
-    .run();
 
   const updated = await getUserCreditBalance(d1, { userId, projectId });
   return { success: true, remaining: updated.remaining, source };
@@ -401,55 +406,81 @@ export async function refundCredit(d1, { userId, projectId, jobId, metadata }) {
   }
 
   const credits = usage.creditsUsed || 1;
+  let refundStatement = null;
   if (usage.source === 'monthly') {
-    await db
-      .update(userQuotas)
-      .set({
-        periodUsed: sql`max(${userQuotas.periodUsed} - ${credits}, 0)`,
-        totalUsed: sql`max(${userQuotas.totalUsed} - ${credits}, 0)`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(eq(userQuotas.userId, Number(userId)), eq(userQuotas.projectId, projectId)))
-      .run();
+    refundStatement = d1.prepare(`
+      UPDATE user_quotas
+      SET period_used = max(period_used - ?, 0),
+          total_used = max(total_used - ?, 0),
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND status != 'refunded'
+        )
+    `).bind(credits, credits, Number(userId), projectId, jobId);
   } else if (usage.source === 'purchased') {
-    await db
-      .update(userQuotas)
-      .set({
-        creditsPurchased: sql`${userQuotas.creditsPurchased} + ${credits}`,
-        totalUsed: sql`max(${userQuotas.totalUsed} - ${credits}, 0)`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(eq(userQuotas.userId, Number(userId)), eq(userQuotas.projectId, projectId)))
-      .run();
+    refundStatement = d1.prepare(`
+      UPDATE user_quotas
+      SET credits_purchased = credits_purchased + ?,
+          total_used = max(total_used - ?, 0),
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND status != 'refunded'
+        )
+    `).bind(credits, credits, Number(userId), projectId, jobId);
   } else if (usage.source === 'gifted') {
-    await db
-      .update(userQuotas)
-      .set({
-        creditsGifted: sql`${userQuotas.creditsGifted} + ${credits}`,
-        totalUsed: sql`max(${userQuotas.totalUsed} - ${credits}, 0)`,
-        updatedAt: sql`datetime('now')`,
-      })
-      .where(and(eq(userQuotas.userId, Number(userId)), eq(userQuotas.projectId, projectId)))
-      .run();
+    refundStatement = d1.prepare(`
+      UPDATE user_quotas
+      SET credits_gifted = credits_gifted + ?,
+          total_used = max(total_used - ?, 0),
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND status != 'refunded'
+        )
+    `).bind(credits, credits, Number(userId), projectId, jobId);
   }
 
-  await updateUsageLog(d1, { jobId, status: 'refunded', metadata });
-  await db
-    .insert(creditTransactions)
-    .values({
-      userId: Number(userId),
-      projectId,
-      type: 'refund',
-      source: usage.source,
-      amount: credits,
-      platform: 'internal',
-      externalId: `refund:${jobId}`,
-      metadata: metadata ? JSON.stringify(metadata) : null,
-    })
-    .onConflictDoNothing({
-      target: [creditTransactions.projectId, creditTransactions.platform, creditTransactions.externalId],
-    })
-    .run();
+  if (!refundStatement) return { refunded: false };
 
-  return { refunded: true };
+  const [updateResult] = await d1.batch([
+    refundStatement,
+    d1.prepare(`
+      UPDATE usage_logs
+      SET status = 'refunded',
+          metadata = ?,
+          updated_at = datetime('now')
+      WHERE job_id = ?
+        AND status != 'refunded'
+        AND changes() > 0
+    `).bind(metadata ? JSON.stringify(metadata) : null, jobId),
+    d1.prepare(`
+      INSERT OR IGNORE INTO credit_transactions
+        (user_id, project_id, type, source, amount, platform, external_id, metadata)
+      SELECT ?, ?, 'refund', ?, ?, 'internal', ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM usage_logs
+        WHERE job_id = ?
+          AND user_id = ?
+          AND project_id = ?
+          AND status = 'refunded'
+      )
+    `).bind(
+      Number(userId),
+      projectId,
+      usage.source,
+      credits,
+      `refund:${jobId}`,
+      metadata ? JSON.stringify(metadata) : null,
+      jobId,
+      Number(userId),
+      projectId,
+    ),
+  ]);
+
+  return { refunded: Boolean(updateResult.meta?.changes) };
 }

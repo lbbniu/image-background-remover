@@ -83,7 +83,7 @@ const zh = {
     paymentSuccess: '支付成功！',
     paymentFailed: '支付失败，请重试',
     subscriptionSuccess: '订阅已激活！',
-    subscriptionCheckout: '使用 PayPal 完成订阅',
+    subscriptionCheckout: '完成订阅支付',
     tryAgain: '重试',
     comingSoon: '即将推出',
     faqTitle: '常见问题',

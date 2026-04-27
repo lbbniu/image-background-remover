@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Navbar from '../components/Navbar'
 import CreditPackCheckout from '../components/CreditPackCheckout'
+import HostedCheckout from '../components/HostedCheckout'
 import SubscriptionCheckout from '../components/SubscriptionCheckout'
 import PayPalProvider from '../components/PayPalProvider'
 import { useI18n } from '../i18n'
@@ -20,6 +21,10 @@ type CheckoutState =
   | { type: 'subscription'; planId: string; planName: string }
   | { type: 'credit'; packId: string; credits: number; price: number }
   | null
+
+type PaymentPlatform = 'paypal' | 'creem'
+
+const paymentPlatform: PaymentPlatform = process.env.NEXT_PUBLIC_PAYMENT_PLATFORM === 'creem' ? 'creem' : 'paypal'
 
 const emptySubscriptionPrices: Record<SubscriptionPriceKey, string> = {
   pro_monthly: '',
@@ -204,7 +209,7 @@ export default function PricingPage() {
       .then(data => setIsLoggedIn(!!data.user))
       .catch(() => setIsLoggedIn(false))
 
-    fetch('/api/plan-prices?platform=paypal')
+    fetch(`/api/plan-prices?platform=${paymentPlatform}`)
       .then(res => res.json())
       .then(data => {
         if (!data.success) return
@@ -218,7 +223,7 @@ export default function PricingPage() {
       .catch(() => {})
       .finally(() => setPricesLoaded(true))
 
-    fetch('/api/credit-packages?platform=paypal')
+    fetch(`/api/credit-packages?platform=${paymentPlatform}`)
       .then(res => res.json())
       .then(data => {
         if (!data.success || !Array.isArray(data.packages)) return
@@ -272,7 +277,7 @@ export default function PricingPage() {
                   </h2>
                   <p className="text-sm text-gray-400 mt-1">
                     {checkout.type === 'subscription'
-                      ? t.pricing.subscriptionCheckout || 'Complete your subscription with PayPal'
+                      ? t.pricing.subscriptionCheckout || `Complete your subscription with ${paymentPlatform}`
                       : `$${checkout.price} · ${t.pricing.packBuy}`}
                   </p>
                 </div>
@@ -286,25 +291,43 @@ export default function PricingPage() {
                 </button>
               </div>
 
-              <PayPalProvider
-                key={checkout.type === 'subscription' ? `sub-${checkout.planId}` : `credit-${checkout.packId}`}
-                intent={checkout.type === 'subscription' ? 'subscription' : 'capture'}
-              >
-                {checkout.type === 'subscription' ? (
-                  <SubscriptionCheckout
-                    planId={checkout.planId}
-                    planName={checkout.planName}
-                    onSuccess={handleSubscriptionSuccess}
-                  />
-                ) : (
-                  <CreditPackCheckout
-                    packId={checkout.packId}
-                    credits={checkout.credits}
-                    price={checkout.price}
-                    onSuccess={handleCreditPackSuccess}
-                  />
-                )}
-              </PayPalProvider>
+              {paymentPlatform === 'paypal' ? (
+                <PayPalProvider
+                  key={checkout.type === 'subscription' ? `sub-${checkout.planId}` : `credit-${checkout.packId}`}
+                  intent={checkout.type === 'subscription' ? 'subscription' : 'capture'}
+                >
+                  {checkout.type === 'subscription' ? (
+                    <SubscriptionCheckout
+                      planId={checkout.planId}
+                      planName={checkout.planName}
+                      onSuccess={handleSubscriptionSuccess}
+                    />
+                  ) : (
+                    <CreditPackCheckout
+                      packId={checkout.packId}
+                      credits={checkout.credits}
+                      price={checkout.price}
+                      onSuccess={handleCreditPackSuccess}
+                    />
+                  )}
+                </PayPalProvider>
+              ) : checkout.type === 'subscription' ? (
+                <HostedCheckout
+                  type="subscription"
+                  platform={paymentPlatform}
+                  priceExternalId={checkout.planId}
+                  planName={checkout.planName}
+                  onSuccess={handleSubscriptionSuccess}
+                />
+              ) : (
+                <HostedCheckout
+                  type="credit"
+                  platform={paymentPlatform}
+                  packId={checkout.packId}
+                  credits={checkout.credits}
+                  onSuccess={handleCreditPackSuccess}
+                />
+              )}
             </div>
           </div>
         )}

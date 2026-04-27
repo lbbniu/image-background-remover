@@ -40,7 +40,7 @@ export async function onRequestPost(context) {
       resourceId: resource?.id,
       payload: body,
     });
-    if (!event.inserted) {
+    if (!event.inserted && event.status !== 'failed') {
       return Response.json({ received: true, duplicate: true });
     }
 

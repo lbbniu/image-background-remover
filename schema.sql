@@ -211,6 +211,17 @@ INSERT OR IGNORE INTO plan_prices (id, project_id, plan_id, platform, external_i
 ('paypal_business_monthly', 'clearcut', 'business', 'paypal', 'P-8P429838BA503293TNHEV2SQ', 'month', 'USD', 2999),
 ('paypal_business_yearly',  'clearcut', 'business', 'paypal', 'P-4W476401A4943870XNHEV2SQ', 'year',  'USD', 29990);
 
+-- Stripe mock / Creem 默认价格映射（真实接入时替换 external_id）
+INSERT OR IGNORE INTO plan_prices (id, project_id, plan_id, platform, external_id, interval, currency, amount_cents) VALUES
+('stripe_pro_monthly',      'clearcut', 'pro',      'stripe', 'price_mock_pro_monthly',      'month', 'USD', 999),
+('stripe_pro_yearly',       'clearcut', 'pro',      'stripe', 'price_mock_pro_yearly',       'year',  'USD', 9990),
+('stripe_business_monthly', 'clearcut', 'business', 'stripe', 'price_mock_business_monthly', 'month', 'USD', 2999),
+('stripe_business_yearly',  'clearcut', 'business', 'stripe', 'price_mock_business_yearly',  'year',  'USD', 29990),
+('creem_pro_monthly',       'clearcut', 'pro',      'creem',  'creem_mock_pro_monthly',      'month', 'USD', 999),
+('creem_pro_yearly',        'clearcut', 'pro',      'creem',  'creem_mock_pro_yearly',       'year',  'USD', 9990),
+('creem_business_monthly',  'clearcut', 'business', 'creem',  'creem_mock_business_monthly', 'month', 'USD', 2999),
+('creem_business_yearly',   'clearcut', 'business', 'creem',  'creem_mock_business_yearly',  'year',  'USD', 29990);
+
 -- 默认接口计费规则（可按 project_id 独立配置）
 INSERT OR IGNORE INTO usage_pricing (id, project_id, action, variant, credits, cost_estimate_cents, metadata) VALUES
 ('background_remove_photoroom', 'clearcut', 'background.remove', 'photoroom', 2, 2,  '{"provider":"photoroom"}'),
@@ -222,6 +233,14 @@ INSERT OR IGNORE INTO credit_packages (id, project_id, package_id, name, credits
 ('paypal_50_credits',  'clearcut', '50',  '50 Credits',  50,  'paypal', 'USD', 499,  NULL,   10),
 ('paypal_200_credits', 'clearcut', '200', '200 Credits', 200, 'paypal', 'USD', 1499, 'best', 20),
 ('paypal_500_credits', 'clearcut', '500', '500 Credits', 500, 'paypal', 'USD', 2999, NULL,   30);
+
+INSERT OR IGNORE INTO credit_packages (id, project_id, package_id, name, credits, platform, external_id, currency, amount_cents, badge, sort_order) VALUES
+('stripe_50_credits',  'clearcut', '50',  '50 Credits',  50,  'stripe', 'price_mock_50_credits',  'USD', 499,  NULL,   10),
+('stripe_200_credits', 'clearcut', '200', '200 Credits', 200, 'stripe', 'price_mock_200_credits', 'USD', 1499, 'best', 20),
+('stripe_500_credits', 'clearcut', '500', '500 Credits', 500, 'stripe', 'price_mock_500_credits', 'USD', 2999, NULL,   30),
+('creem_50_credits',   'clearcut', '50',  '50 Credits',  50,  'creem',  'creem_mock_50_credits',  'USD', 499,  NULL,   10),
+('creem_200_credits',  'clearcut', '200', '200 Credits', 200, 'creem',  'creem_mock_200_credits', 'USD', 1499, 'best', 20),
+('creem_500_credits',  'clearcut', '500', '500 Credits', 500, 'creem',  'creem_mock_500_credits', 'USD', 2999, NULL,   30);
 
 CREATE INDEX IF NOT EXISTS idx_user_quotas_user_project ON user_quotas(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_plan_prices_plan ON plan_prices(project_id, plan_id);
