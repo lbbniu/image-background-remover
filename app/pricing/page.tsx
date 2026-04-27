@@ -9,6 +9,13 @@ import PayPalProvider from '../components/PayPalProvider'
 import { useI18n } from '../i18n'
 
 type SubscriptionPriceKey = 'pro_monthly' | 'pro_yearly' | 'biz_monthly' | 'biz_yearly'
+type CreditPack = {
+  id: string
+  credits: number
+  price: number
+  perCredit: string
+  badgeKey?: 'packBest'
+}
 type CheckoutState =
   | { type: 'subscription'; planId: string; planName: string }
   | { type: 'credit'; packId: string; credits: number; price: number }
@@ -93,11 +100,27 @@ const plansData = [
   },
 ]
 
-const creditPacks = [
+const defaultCreditPacks: CreditPack[] = [
   { id: '50', credits: 50, price: 4.99, perCredit: '0.10' },
   { id: '200', credits: 200, price: 14.99, perCredit: '0.075', badgeKey: 'packBest' as const },
   { id: '500', credits: 500, price: 29.99, perCredit: '0.06' },
 ]
+
+function toCreditPack(pack: {
+  id: string
+  credits: number
+  amountCents: number
+  badge?: string | null
+}): CreditPack {
+  const price = pack.amountCents / 100
+  return {
+    id: pack.id,
+    credits: pack.credits,
+    price,
+    perCredit: (price / pack.credits).toFixed(3).replace(/0+$/, '').replace(/\.$/, ''),
+    badgeKey: pack.badge === 'best' ? 'packBest' : undefined,
+  }
+}
 
 // Feature text mapping with i18n support
 function getFeatureText(textKey: string, t: ReturnType<typeof useI18n>['t']): string {
@@ -169,6 +192,7 @@ export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
   const [subscriptionPrices, setSubscriptionPrices] = useState<Record<SubscriptionPriceKey, string>>(emptySubscriptionPrices)
+  const [creditPacks, setCreditPacks] = useState<CreditPack[]>(defaultCreditPacks)
   const [pricesLoaded, setPricesLoaded] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [checkout, setCheckout] = useState<CheckoutState>(null)
@@ -193,6 +217,14 @@ export default function PricingPage() {
       })
       .catch(() => {})
       .finally(() => setPricesLoaded(true))
+
+    fetch('/api/credit-packages?platform=paypal')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.success || !Array.isArray(data.packages)) return
+        setCreditPacks(data.packages.map(toCreditPack))
+      })
+      .catch(() => {})
   }, [])
 
   const handleLoginRequired = () => {

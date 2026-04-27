@@ -83,6 +83,28 @@ export const usagePricing = sqliteTable('usage_pricing', {
   index('idx_usage_pricing_lookup').on(table.projectId, table.action, table.variant, table.isActive),
 ]);
 
+export const creditPackages = sqliteTable('credit_packages', {
+  id: text('id').notNull(),
+  projectId: text('project_id').notNull().default('clearcut'),
+  packageId: text('package_id').notNull(),
+  name: text('name').notNull(),
+  credits: integer('credits').notNull(),
+  platform: text('platform').notNull(),
+  externalId: text('external_id'),
+  currency: text('currency').notNull().default('USD'),
+  amountCents: integer('amount_cents').notNull(),
+  badge: text('badge'),
+  sortOrder: integer('sort_order').default(0),
+  metadata: text('metadata'),
+  isActive: integer('is_active').default(1),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  primaryKey({ columns: [table.id, table.projectId] }),
+  uniqueIndex('uq_credit_packages_project_platform_package').on(table.projectId, table.platform, table.packageId),
+  index('idx_credit_packages_lookup').on(table.projectId, table.platform, table.isActive),
+]);
+
 export const userQuotas = sqliteTable('user_quotas', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),

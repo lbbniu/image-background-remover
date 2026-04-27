@@ -133,14 +133,14 @@ functions/api/your-feature.js
 npx wrangler d1 execute your-db-name --remote --file=schema.sql
 ```
 
-当前底座包含 11 张表：
+当前底座包含 12 张表：
 
 ```text
 账号层:
 users / oauth_accounts
 
 配置层:
-subscription_plans / plan_prices / usage_pricing
+subscription_plans / plan_prices / usage_pricing / credit_packages
 
 状态层:
 user_quotas / subscriptions / credit_purchases
@@ -338,6 +338,7 @@ GET  /api/oauth/google/callback
 GET  /api/me
 GET  /api/me/credits
 GET  /api/me/credits/transactions
+GET  /api/credit-packages?platform=paypal
 GET  /api/plan-prices?platform=paypal
 POST /api/subscriptions
 POST /api/credit-purchases/paypal-orders
@@ -349,24 +350,28 @@ POST /api/webhooks/paypal
 - 登录按钮跳转 `/api/oauth/google/authorization`。
 - 个人中心请求 `/api/me` 和 `/api/me/credits`。
 - 积分明细请求 `/api/me/credits/transactions?limit=20&offset=0`。
-- 定价页请求 `/api/plan-prices?platform=paypal`。
+- 定价页请求 `/api/plan-prices?platform=paypal` 和 `/api/credit-packages?platform=paypal`。
 - 业务页面调用自己的 `/api/your-feature`。
 
 ### 9. 单独购买积分包
 
-当前积分包配置在 `functions/lib/payments/credit-purchases.js` 的 `getCreditPackages()` 中：
+积分包属于运营数据，按 `project_id + platform` 写入 D1，不需要改代码。
 
-```js
-export function getCreditPackages() {
-  return {
-    '50': { credits: 50, price: '4.99', label: '50 Credits' },
-    '200': { credits: 200, price: '14.99', label: '200 Credits' },
-    '500': { credits: 500, price: '29.99', label: '500 Credits' },
-  };
-}
+```sql
+INSERT OR IGNORE INTO credit_packages (
+  id, project_id, package_id, name, credits, platform, currency, amount_cents, badge, sort_order
+) VALUES
+  ('paypal_50_credits',  'new-site', '50',  '50 Credits',  50,  'paypal', 'USD', 499,  NULL,   10),
+  ('paypal_200_credits', 'new-site', '200', '200 Credits', 200, 'paypal', 'USD', 1499, 'best', 20),
+  ('paypal_500_credits', 'new-site', '500', '500 Credits', 500, 'paypal', 'USD', 2999, NULL,   30);
 ```
 
-新站点如果积分包不同，先调整这里。后续如果需要后台化管理，可以新增 `credit_packages` 配置表，把积分包从代码迁移到 D1。
+字段约定：
+- `package_id` 是前端购买时传入的稳定 ID，例如 `50`、`200`。
+- `credits` 是购买成功后增加到 `user_quotas.credits_purchased` 的积分数。
+- `amount_cents` 是售价，支付创建订单和金额校验都以该值为准。
+- `platform` 支持 `paypal`、`stripe`、`creem` 等支付平台。
+- `badge` 是展示角标，例如 `best`。
 
 ### 10. 接入检查清单
 
@@ -374,6 +379,7 @@ export function getCreditPackages() {
 - `PROJECT_ID` 已改为新项目 ID，且数据库配置数据也使用同一个 `project_id`。
 - `subscription_plans` 至少包含 `free` 和一个付费套餐。
 - `plan_prices.external_id` 已替换为真实 PayPal / Stripe / Creem 平台 ID。
+- `credit_packages` 已写入积分包价格和积分数。
 - `usage_pricing` 已写入业务接口动作的计费规则。
 - `CREDIT_CONSUME_ORDER` 已按产品策略配置。
 - 支付 Webhook 已配置到生产域名。

@@ -1,14 +1,62 @@
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
-import { creditPurchases } from '../../../db/schema.js';
+import { creditPackages, creditPurchases } from '../../../db/schema.js';
 import { ensureUserQuota } from '../credits/service.js';
 
-export function getCreditPackages() {
+function parseMetadata(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function toCreditPackage(row) {
+  if (!row) return null;
   return {
-    '50': { credits: 50, price: '4.99', label: '50 Credits' },
-    '200': { credits: 200, price: '14.99', label: '200 Credits' },
-    '500': { credits: 500, price: '29.99', label: '500 Credits' },
+    id: row.packageId,
+    packageId: row.packageId,
+    name: row.name,
+    label: row.name,
+    credits: row.credits,
+    platform: row.platform,
+    externalId: row.externalId,
+    currency: row.currency,
+    amountCents: row.amountCents,
+    price: (row.amountCents / 100).toFixed(2),
+    badge: row.badge,
+    metadata: parseMetadata(row.metadata),
   };
+}
+
+export async function listCreditPackages(d1, { projectId, platform = 'paypal' }) {
+  const rows = await getDb(d1)
+    .select()
+    .from(creditPackages)
+    .where(and(
+      eq(creditPackages.projectId, projectId),
+      eq(creditPackages.platform, platform),
+      eq(creditPackages.isActive, 1),
+    ))
+    .orderBy(asc(creditPackages.sortOrder), asc(creditPackages.credits));
+
+  return rows.map(toCreditPackage);
+}
+
+export async function getCreditPackage(d1, { projectId, platform = 'paypal', packageId }) {
+  const row = await getDb(d1)
+    .select()
+    .from(creditPackages)
+    .where(and(
+      eq(creditPackages.projectId, projectId),
+      eq(creditPackages.platform, platform),
+      eq(creditPackages.packageId, packageId),
+      eq(creditPackages.isActive, 1),
+    ))
+    .get();
+
+  return toCreditPackage(row);
 }
 
 export async function addPurchasedCredits(d1, {

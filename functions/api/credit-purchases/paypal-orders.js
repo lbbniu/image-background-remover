@@ -1,6 +1,6 @@
 import { getUser } from '../../lib/auth.js';
 import { getProjectId } from '../../lib/core/projects.js';
-import { createPendingCreditPurchase, getCreditPackages } from '../../lib/payments/credit-purchases.js';
+import { createPendingCreditPurchase, getCreditPackage } from '../../lib/payments/credit-purchases.js';
 import { createOrder } from '../../lib/paypal.js';
 
 export async function onRequestPost(context) {
@@ -15,16 +15,17 @@ export async function onRequestPost(context) {
       );
     }
 
-    const { packId } = await request.json();
-    const pack = getCreditPackages()[packId];
-    if (!pack) {
-      return Response.json({ success: false, error: 'Invalid pack ID' }, { status: 400 });
-    }
     if (!env.DB) {
       return Response.json({ success: false, error: 'Database not configured' }, { status: 500 });
     }
 
+    const { packId } = await request.json();
     const projectId = getProjectId(env);
+    const pack = await getCreditPackage(env.DB, { projectId, platform: 'paypal', packageId: packId });
+    if (!pack) {
+      return Response.json({ success: false, error: 'Invalid pack ID' }, { status: 400 });
+    }
+
     const invoiceId = `${projectId}-${user.sub}-${packId}-${crypto.randomUUID()}`;
     const order = await createOrder(env, pack.price, `ClearCut AI - ${pack.label}`, {
       customId: JSON.stringify({ projectId, userId: String(user.sub), packId }),

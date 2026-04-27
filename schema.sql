@@ -81,6 +81,27 @@ CREATE TABLE IF NOT EXISTS usage_pricing (
   UNIQUE(project_id, action, variant)
 );
 
+-- 积分包配置（支持 PayPal / Stripe / Creem 等多支付平台）
+CREATE TABLE IF NOT EXISTS credit_packages (
+  id TEXT NOT NULL,
+  project_id TEXT NOT NULL DEFAULT 'clearcut',
+  package_id TEXT NOT NULL,          -- 前端传入的积分包 ID，如 '50', '200'
+  name TEXT NOT NULL,                -- 展示名，如 '50 Credits'
+  credits INTEGER NOT NULL,          -- 购买后增加的积分数
+  platform TEXT NOT NULL,            -- 'paypal', 'stripe', 'creem'
+  external_id TEXT,                  -- 支付平台 product/price/sku ID，可为空
+  currency TEXT NOT NULL DEFAULT 'USD',
+  amount_cents INTEGER NOT NULL,     -- 售价（美分）
+  badge TEXT,                        -- 展示角标，如 'best'
+  sort_order INTEGER DEFAULT 0,
+  metadata JSON,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (id, project_id),
+  UNIQUE(project_id, platform, package_id)
+);
+
 -- 用户配额表（核心表）
 CREATE TABLE IF NOT EXISTS user_quotas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,10 +217,17 @@ INSERT OR IGNORE INTO usage_pricing (id, project_id, action, variant, credits, c
 ('background_remove_bria',      'clearcut', 'background.remove', 'bria',      2, 2,  '{"provider":"bria"}'),
 ('background_remove_removebg',  'clearcut', 'background.remove', 'removebg',  10, 20, '{"provider":"remove.bg"}');
 
+-- 默认积分包配置（可按 project_id 独立配置）
+INSERT OR IGNORE INTO credit_packages (id, project_id, package_id, name, credits, platform, currency, amount_cents, badge, sort_order) VALUES
+('paypal_50_credits',  'clearcut', '50',  '50 Credits',  50,  'paypal', 'USD', 499,  NULL,   10),
+('paypal_200_credits', 'clearcut', '200', '200 Credits', 200, 'paypal', 'USD', 1499, 'best', 20),
+('paypal_500_credits', 'clearcut', '500', '500 Credits', 500, 'paypal', 'USD', 2999, NULL,   30);
+
 CREATE INDEX IF NOT EXISTS idx_user_quotas_user_project ON user_quotas(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_plan_prices_plan ON plan_prices(project_id, plan_id);
 CREATE INDEX IF NOT EXISTS idx_plan_prices_platform ON plan_prices(platform, external_id);
 CREATE INDEX IF NOT EXISTS idx_usage_pricing_lookup ON usage_pricing(project_id, action, variant, is_active);
+CREATE INDEX IF NOT EXISTS idx_credit_packages_lookup ON credit_packages(project_id, platform, is_active);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_project ON subscriptions(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(project_id, status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_external ON subscriptions(platform, external_id);
