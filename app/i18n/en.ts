@@ -53,7 +53,7 @@ const en = {
     proName: 'Pro',
     proDesc: 'For designers & content creators',
     proBadge: 'Most Popular',
-    proCta: 'Upgrade to Pro',
+    proCta: 'Subscribe',
     bizName: 'Business',
     bizDesc: 'For teams & high-volume needs',
     bizCta: 'Go Business',

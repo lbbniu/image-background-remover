@@ -53,7 +53,7 @@ const zh = {
     proName: '专业版',
     proDesc: '适合设计师和内容创作者',
     proBadge: '最受欢迎',
-    proCta: '升级专业版',
+    proCta: '订阅',
     bizName: '企业版',
     bizDesc: '适合团队和大批量需求',
     bizCta: '升级企业版',

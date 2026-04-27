@@ -30,6 +30,11 @@ interface QuotaInfo {
   }
 }
 
+function formatMonthlyPrice(amountCents?: number) {
+  if (!amountCents) return 'Free'
+  return `$${(amountCents / 100).toFixed(2).replace(/\.00$/, '')}`
+}
+
 export default function ProfilePage() {
   const { t } = useI18n()
   const [user, setUser] = useState<User | null>(null)
@@ -244,7 +249,7 @@ export default function ProfilePage() {
             <div className="mb-6">
               <div className="flex items-baseline gap-2 mb-1">
                 <span className="text-3xl font-bold text-white">
-                  {quota?.plan?.priceMonthly === 0 ? 'Free' : `$${quota?.plan?.priceMonthly}`}
+                  {formatMonthlyPrice(quota?.plan?.priceMonthly)}
                 </span>
                 {(quota?.plan?.priceMonthly || 0) > 0 && (
                   <span className="text-gray-500 text-sm">/month</span>
