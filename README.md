@@ -130,6 +130,15 @@ foundation/features/
 functions/api/your-feature.js
 ```
 
+通用模块统一从各模块的 `index.js` 引入，业务接口不要直接依赖内部 `service.js` 文件：
+
+```js
+import { getUser } from '../../foundation/modules/auth/index.js';
+import { getProjectId } from '../../foundation/modules/core/index.js';
+import { resolveUsageCharge } from '../../foundation/modules/billing/index.js';
+import { consumeCredit } from '../../foundation/modules/credits/index.js';
+```
+
 ### 2. 初始化数据库
 
 新项目可以使用独立 D1，也可以多个项目共用一个 D1。共用 D1 时必须保证每个项目使用独立 `PROJECT_ID`。
@@ -245,16 +254,16 @@ INSERT OR IGNORE INTO usage_pricing (
 业务接口只需要声明动作和变体，不要自己写死扣费数字。
 
 ```js
-import { getUser } from '../../foundation/modules/auth/session.js';
-import { getProjectId } from '../../foundation/modules/core/projects.js';
-import { resolveUsageCharge } from '../../foundation/modules/billing/policies.js';
+import { getUser } from '../../foundation/modules/auth/index.js';
+import { getProjectId } from '../../foundation/modules/core/index.js';
+import { resolveUsageCharge } from '../../foundation/modules/billing/index.js';
 import {
   consumeCredit,
   getCreditConsumeOrder,
   getUserCreditBalance,
   refundCredit,
   updateUsageLog,
-} from '../../foundation/modules/credits/service.js';
+} from '../../foundation/modules/credits/index.js';
 
 export async function onRequestPost({ request, env }) {
   const user = await getUser(request, env);
@@ -390,6 +399,22 @@ INSERT OR IGNORE INTO credit_packages (
 - 支付 Webhook 已配置到生产域名。
 - 业务接口失败时会调用 `refundCredit` 退回已扣积分。
 - 前端只展示价格和发起支付，不直接给用户加积分。
+
+### 11. 积分对账
+
+`user_quotas` 是余额快照，`credit_transactions` 是账本。上线后建议定期运行只读对账脚本，检查快照和账本是否出现偏差：
+
+```bash
+npm run credits:reconcile -- --db clearcut-db --project clearcut --remote
+```
+
+机器可读输出：
+
+```bash
+npm run credits:reconcile -- --db clearcut-db --project clearcut --remote --json
+```
+
+脚本只报告问题，不会自动修改余额。发现 drift 后应先确认对应支付、退款或业务扣减流水，再决定是否人工修正。
 
 ### 3. 开发模式
 

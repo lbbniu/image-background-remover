@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signJWT } from '../foundation/modules/auth/session.js';
-import { createPendingCreditPurchase } from '../foundation/modules/payments/credit-purchases.js';
+import { signJWT } from '../foundation/modules/auth/index.js';
+import { createPendingCreditPurchase } from '../foundation/modules/payments/index.js';
 import { onRequestPost as createOrderHandler } from '../functions/api/credit-purchases/paypal-orders.js';
 import { onRequestPost as captureOrderHandler } from '../functions/api/credit-purchases/paypal-orders/[orderId]/capture.js';
 import { createSchemaBackedD1 } from './d1-test-db.mjs';

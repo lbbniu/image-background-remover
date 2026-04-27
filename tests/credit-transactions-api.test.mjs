@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { signJWT } from '../foundation/modules/auth/session.js';
+import { signJWT } from '../foundation/modules/auth/index.js';
 import { onRequestGet as transactionsHandler } from '../functions/api/me/credits/transactions.js';
 import { createSchemaBackedD1 } from './d1-test-db.mjs';
 

@@ -1,8 +1,8 @@
-import { getUser } from '../../foundation/modules/auth/session.js';
-import { removeImageBackground, selectBackgroundRemovalProvider } from '../../foundation/features/background-removal.js';
-import { resolveUsageCharge } from '../../foundation/modules/billing/policies.js';
-import { getProjectId } from '../../foundation/modules/core/projects.js';
-import { consumeCredit, getCreditConsumeOrder, getUserCreditBalance, refundCredit, updateUsageLog } from '../../foundation/modules/credits/service.js';
+import { getUser } from '../../foundation/modules/auth/index.js';
+import { removeImageBackground, selectBackgroundRemovalProvider } from '../../foundation/features/index.js';
+import { resolveUsageCharge } from '../../foundation/modules/billing/index.js';
+import { getProjectId } from '../../foundation/modules/core/index.js';
+import { consumeCredit, getCreditConsumeOrder, getUserCreditBalance, refundCredit, updateUsageLog } from '../../foundation/modules/credits/index.js';
 
 function base64ToUint8Array(base64) {
   const binary = atob(base64);

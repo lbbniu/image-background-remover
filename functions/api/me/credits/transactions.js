@@ -1,6 +1,6 @@
-import { getUser } from '../../../../foundation/modules/auth/session.js';
-import { getProjectId } from '../../../../foundation/modules/core/projects.js';
-import { listUserCreditTransactions } from '../../../../foundation/modules/credits/service.js';
+import { getUser } from '../../../../foundation/modules/auth/index.js';
+import { getProjectId } from '../../../../foundation/modules/core/index.js';
+import { listUserCreditTransactions } from '../../../../foundation/modules/credits/index.js';
 
 const ALLOWED_TYPES = new Set(['gift', 'purchase', 'subscription', 'consume', 'refund', 'adjustment']);
 const ALLOWED_SOURCES = new Set(['monthly', 'purchased', 'gifted']);

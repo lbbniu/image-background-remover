@@ -1,7 +1,7 @@
-import { getUser } from '../../../foundation/modules/auth/session.js';
-import { getProjectId } from '../../../foundation/modules/core/projects.js';
-import { getUserCreditBalance } from '../../../foundation/modules/credits/service.js';
-import { getPlan } from '../../../foundation/modules/plans/service.js';
+import { getUser } from '../../../foundation/modules/auth/index.js';
+import { getProjectId } from '../../../foundation/modules/core/index.js';
+import { getUserCreditBalance } from '../../../foundation/modules/credits/index.js';
+import { getPlan } from '../../../foundation/modules/plans/index.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;

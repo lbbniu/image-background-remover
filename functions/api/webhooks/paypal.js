@@ -1,13 +1,12 @@
-import { verifyWebhookSignature } from '../../../foundation/integrations/paypal.js';
-import { getProjectId } from '../../../foundation/modules/core/projects.js';
-import { completeCreditPurchase } from '../../../foundation/modules/payments/credit-purchases.js';
-import { markPaymentEventProcessed, recordPaymentEvent } from '../../../foundation/modules/payments/events.js';
+import { verifyWebhookSignature } from '../../../foundation/integrations/index.js';
+import { getProjectId } from '../../../foundation/modules/core/index.js';
+import { completeCreditPurchase, markPaymentEventProcessed, recordPaymentEvent } from '../../../foundation/modules/payments/index.js';
 import {
   cancelUserSubscription,
   getSubscriptionOwner,
   renewSubscriptionPeriod,
   updateSubscriptionStatus,
-} from '../../../foundation/modules/subscriptions/service.js';
+} from '../../../foundation/modules/subscriptions/index.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;

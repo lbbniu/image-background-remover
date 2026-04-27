@@ -1,5 +1,5 @@
-import { getProjectId } from '../../foundation/modules/core/projects.js';
-import { listCreditPackages } from '../../foundation/modules/payments/credit-purchases.js';
+import { getProjectId } from '../../foundation/modules/core/index.js';
+import { listCreditPackages } from '../../foundation/modules/payments/index.js';
 
 export async function onRequestGet({ request, env }) {
   if (!env.DB) {

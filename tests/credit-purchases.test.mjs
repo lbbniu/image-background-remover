@@ -4,7 +4,7 @@ import {
   completeCreditPurchase,
   createPendingCreditPurchase,
   getCreditPurchaseByExternalId,
-} from '../foundation/modules/payments/credit-purchases.js';
+} from '../foundation/modules/payments/index.js';
 import { createSchemaBackedD1 } from './d1-test-db.mjs';
 
 async function createUser(d1) {

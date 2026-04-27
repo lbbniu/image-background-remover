@@ -1,4 +1,4 @@
-import { getOAuthRedirectUri } from '../../../../foundation/modules/core/url.js';
+import { getOAuthRedirectUri } from '../../../../foundation/modules/core/index.js';
 
 export async function onRequestGet(context) {
   const { env, request } = context;
