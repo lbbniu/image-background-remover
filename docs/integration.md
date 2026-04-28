@@ -344,14 +344,13 @@ INSERT OR IGNORE INTO credit_packages (
   ('paypal_500_credits', 'new-site', '500', '500 Credits', 500, 'paypal', 'USD', 2999, NULL,   30);
 ```
 
-如果要联调 Stripe mock 或 Creem 本地 fallback mock，也需要为对应平台写入相同 `package_id`：
+如果要联调 Stripe mock，也需要为 Stripe 写入相同 `package_id`：
 
 ```sql
 INSERT OR IGNORE INTO credit_packages (
   id, project_id, package_id, name, credits, platform, external_id, currency, amount_cents, badge, sort_order
 ) VALUES
-  ('stripe_50_credits', 'new-site', '50', '50 Credits', 50, 'stripe', 'price_mock_50_credits', 'USD', 499, NULL, 10),
-  ('creem_50_credits',  'new-site', '50', '50 Credits', 50, 'creem',  'creem_mock_50_credits',  'USD', 499, NULL, 10);
+  ('stripe_50_credits', 'new-site', '50', '50 Credits', 50, 'stripe', 'price_mock_50_credits', 'USD', 499, NULL, 10);
 ```
 
 ## 积分对账

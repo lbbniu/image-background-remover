@@ -22,6 +22,12 @@ export async function onRequestPost({ request, env }) {
     if (platform !== 'creem' && platform !== 'stripe') {
       return Response.json({ success: false, error: 'Unsupported subscription checkout platform' }, { status: 400 });
     }
+    if (platform === 'creem' && !isCreemConfigured(env)) {
+      return Response.json(
+        { success: false, error: 'Creem payment is not configured' },
+        { status: 503 },
+      );
+    }
     if (!priceExternalId) {
       return Response.json({ success: false, error: 'Plan price external ID required' }, { status: 400 });
     }
@@ -52,7 +58,7 @@ export async function onRequestPost({ request, env }) {
     };
 
     let session;
-    if (platform === 'creem' && isCreemConfigured(env)) {
+    if (platform === 'creem') {
       session = await createCreemCheckout(env, {
         productId: priceExternalId,
         requestId,
@@ -92,7 +98,7 @@ export async function onRequestPost({ request, env }) {
       platform,
       sessionId,
       checkoutUrl: session.checkout_url || session.checkoutUrl || session.url,
-      mock: !(platform === 'creem' && isCreemConfigured(env)),
+      mock: platform !== 'creem',
     }, { status: 201 });
   } catch (error) {
     console.error('Create subscription checkout session error:', error);
@@ -102,4 +108,3 @@ export async function onRequestPost({ request, env }) {
     );
   }
 }
-

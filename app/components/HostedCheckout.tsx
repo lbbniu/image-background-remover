@@ -51,7 +51,7 @@ export default function HostedCheckout(props: HostedCheckoutProps) {
         throw new Error(data.error || 'Failed to create checkout')
       }
 
-      if (data.mock && props.type === 'credit') {
+      if (data.mock && props.platform === 'stripe' && props.type === 'credit') {
         const confirm = await fetch(`/api/credit-purchases/checkout-sessions/${data.sessionId}/confirm`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -63,7 +63,7 @@ export default function HostedCheckout(props: HostedCheckoutProps) {
         return
       }
 
-      if (data.mock && props.type === 'subscription') {
+      if (data.mock && props.platform === 'stripe' && props.type === 'subscription') {
         const confirm = await fetch('/api/subscriptions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -114,4 +114,3 @@ export default function HostedCheckout(props: HostedCheckoutProps) {
     </button>
   )
 }
-

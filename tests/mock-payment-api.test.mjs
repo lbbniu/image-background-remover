@@ -144,7 +144,7 @@ test('mock checkout session rejects PayPal because it has a real route', async (
   }
 });
 
-test('mock checkout session requires explicit mock enablement', async () => {
+test('Creem checkout cannot fall back to mock payments', async () => {
   const d1 = createSchemaBackedD1();
   try {
     const user = await createUser(d1);
@@ -154,12 +154,12 @@ test('mock checkout session requires explicit mock enablement', async () => {
         { platform: 'creem', packId: '50' },
         await authCookie(user),
       ),
-      env: envFor(d1, { PAYMENT_MOCK_ENABLED: 'false' }),
+      env: envFor(d1),
     });
     const body = await response.json();
 
     assert.equal(response.status, 503);
-    assert.equal(body.error, 'creem payment is not configured');
+    assert.equal(body.error, 'Creem payment is not configured');
   } finally {
     d1.close();
   }
@@ -186,14 +186,14 @@ test('mock checkout session validates pack id', async () => {
   }
 });
 
-test('mock checkout confirmation applies Creem credits exactly once', async () => {
+test('mock checkout confirmation applies Stripe credits exactly once', async () => {
   const d1 = createSchemaBackedD1();
   try {
     const user = await createUser(d1);
     const createResponse = await createCheckoutSessionHandler({
       request: jsonRequest(
         'https://example.test/api/credit-purchases/checkout-sessions',
-        { platform: 'creem', packId: '200' },
+        { platform: 'stripe', packId: '200' },
         await authCookie(user),
       ),
       env: envFor(d1),
@@ -203,7 +203,7 @@ test('mock checkout confirmation applies Creem credits exactly once', async () =
     const first = await confirmCheckoutSessionHandler({
       request: jsonRequest(
         `https://example.test/api/credit-purchases/checkout-sessions/${createBody.sessionId}/confirm`,
-        { platform: 'creem' },
+        { platform: 'stripe' },
         await authCookie(user),
       ),
       env: envFor(d1),
@@ -212,7 +212,7 @@ test('mock checkout confirmation applies Creem credits exactly once', async () =
     const second = await confirmCheckoutSessionHandler({
       request: jsonRequest(
         `https://example.test/api/credit-purchases/checkout-sessions/${createBody.sessionId}/confirm`,
-        { platform: 'creem' },
+        { platform: 'stripe' },
         await authCookie(user),
       ),
       env: envFor(d1),
@@ -221,7 +221,7 @@ test('mock checkout confirmation applies Creem credits exactly once', async () =
 
     const firstBody = await first.json();
     const secondBody = await second.json();
-    const purchase = await getPurchase(d1, 'creem', createBody.sessionId);
+    const purchase = await getPurchase(d1, 'stripe', createBody.sessionId);
     const quota = await getQuota(d1, user.id);
 
     assert.equal(first.status, 200);
@@ -430,7 +430,7 @@ test('mock subscription requires price external id', async () => {
     const response = await subscriptionHandler({
       request: jsonRequest(
         'https://example.test/api/subscriptions',
-        { platform: 'creem', externalId: 'sub_mock_missing_price' },
+        { platform: 'stripe', externalId: 'sub_mock_missing_price' },
         await authCookie(user),
       ),
       env: envFor(d1),

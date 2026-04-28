@@ -1,4 +1,4 @@
-const MOCK_PLATFORMS = new Set(['stripe', 'creem']);
+const MOCK_PLATFORMS = new Set(['stripe']);
 
 export function isMockPaymentPlatform(platform) {
   return MOCK_PLATFORMS.has(platform);
@@ -29,8 +29,7 @@ export function createMockCheckoutSession(env, {
 }) {
   assertMockPaymentEnabled(env, platform);
 
-  const prefix = platform === 'stripe' ? 'cs' : 'creem_checkout';
-  const sessionId = `${prefix}_mock_${crypto.randomUUID()}`;
+  const sessionId = `cs_mock_${crypto.randomUUID()}`;
   const url = new URL(successUrl || env.APP_URL || 'https://example.test');
   url.searchParams.set('mock_payment', 'success');
   url.searchParams.set('platform', platform);
@@ -49,4 +48,3 @@ export function createMockCheckoutSession(env, {
     mock: true,
   };
 }
-

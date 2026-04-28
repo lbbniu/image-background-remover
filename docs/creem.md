@@ -64,7 +64,7 @@ WHERE project_id = 'clearcut'
   AND package_id = '50';
 ```
 
-生产环境不要继续使用 `creem_mock_*`。这些值只适合本地 mock、测试库或尚未创建 Creem 产品时的占位。
+生产环境不要继续使用 `creem_test_*`。这些值只适合测试库或尚未创建 Creem 产品时的占位；真实 Creem checkout 仍要求配置 `CREEM_API_KEY`。
 
 ## 接口
 

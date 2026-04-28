@@ -127,7 +127,7 @@ test('Creem credit checkout creates real checkout and pending purchase', async (
     assert.equal(body.success, true);
     assert.equal(body.mock, false);
     assert.equal(body.checkoutUrl, 'https://checkout.creem.io/ch_creem_1');
-    assert.equal(payload.product_id, 'creem_mock_50_credits');
+    assert.equal(payload.product_id, 'creem_test_50_credits');
     assert.equal(payload.customer.email, user.email);
     assert.equal(payload.metadata.kind, 'credit_purchase');
     assert.equal(purchase.status, 'pending');
@@ -169,7 +169,7 @@ test('Creem credit checkout validates missing configuration and malformed API re
 
     await d1
       .prepare('UPDATE credit_packages SET external_id = ? WHERE project_id = ? AND platform = ? AND package_id = ?')
-      .bind('creem_mock_50_credits', 'clearcut', 'creem', '50')
+      .bind('creem_test_50_credits', 'clearcut', 'creem', '50')
       .run();
     globalThis.fetch = async () => Response.json({ checkout_url: 'https://checkout.creem.io/missing-id' });
     const missingSession = await createCheckoutSessionHandler({
@@ -182,7 +182,7 @@ test('Creem credit checkout validates missing configuration and malformed API re
     });
 
     assert.equal(notConfigured.status, 503);
-    assert.equal((await notConfigured.json()).error, 'creem payment is not configured');
+    assert.equal((await notConfigured.json()).error, 'Creem payment is not configured');
     assert.equal(missingProduct.status, 400);
     assert.equal((await missingProduct.json()).error, 'Creem product ID not configured');
     assert.equal(missingSession.status, 502);
@@ -201,7 +201,7 @@ test('Creem subscription checkout creates hosted checkout session', async () => 
     const response = await createSubscriptionCheckoutHandler({
       request: jsonRequest(
         'https://example.test/api/subscription-checkout-sessions',
-        { platform: 'creem', priceExternalId: 'creem_mock_pro_monthly' },
+        { platform: 'creem', priceExternalId: 'creem_test_pro_monthly' },
         await authCookie(user),
       ),
       env: envFor(d1),
@@ -213,7 +213,7 @@ test('Creem subscription checkout creates hosted checkout session', async () => 
     assert.equal(body.success, true);
     assert.equal(body.mock, false);
     assert.equal(body.sessionId, 'ch_sub_1');
-    assert.equal(payload.product_id, 'creem_mock_pro_monthly');
+    assert.equal(payload.product_id, 'creem_test_pro_monthly');
     assert.equal(payload.metadata.kind, 'subscription');
     assert.equal(payload.metadata.planId, 'pro');
   } finally {
@@ -231,14 +231,14 @@ test('subscription checkout endpoint validates request branches', async () => {
     const missingLogin = await createSubscriptionCheckoutHandler({
       request: jsonRequest(
         'https://example.test/api/subscription-checkout-sessions',
-        { platform: 'creem', priceExternalId: 'creem_mock_pro_monthly' },
+        { platform: 'creem', priceExternalId: 'creem_test_pro_monthly' },
       ),
       env: envFor(d1),
     });
     const missingDb = await createSubscriptionCheckoutHandler({
       request: jsonRequest(
         'https://example.test/api/subscription-checkout-sessions',
-        { platform: 'creem', priceExternalId: 'creem_mock_pro_monthly' },
+        { platform: 'creem', priceExternalId: 'creem_test_pro_monthly' },
         cookie,
       ),
       env: envFor(undefined),
@@ -307,7 +307,7 @@ test('subscription checkout supports Stripe mock and rejects active subscription
     const activeExists = await createSubscriptionCheckoutHandler({
       request: jsonRequest(
         'https://example.test/api/subscription-checkout-sessions',
-        { platform: 'creem', priceExternalId: 'creem_mock_pro_monthly' },
+        { platform: 'creem', priceExternalId: 'creem_test_pro_monthly' },
         cookie,
       ),
       env: envFor(d1),
@@ -348,7 +348,7 @@ test('Creem webhook completes credit purchase from checkout.completed', async ()
           object: 'checkout',
           metadata: { kind: 'credit_purchase' },
           order: { id: 'ord_credit_paid' },
-          product: { id: 'creem_mock_50_credits' },
+          product: { id: 'creem_test_50_credits' },
         },
       }),
       env: envFor(d1),
@@ -383,10 +383,10 @@ test('Creem webhook activates subscription from checkout.completed', async () =>
           metadata: {
             kind: 'subscription',
             userId: String(user.id),
-            priceExternalId: 'creem_mock_pro_monthly',
+            priceExternalId: 'creem_test_pro_monthly',
           },
           subscription: { id: 'sub_creem_1' },
-          product: { id: 'creem_mock_pro_monthly' },
+          product: { id: 'creem_test_pro_monthly' },
         },
       }),
       env: envFor(d1),
@@ -421,9 +421,9 @@ test('Creem webhook handles duplicate, grant, revoke, and ignored events', async
         object: 'subscription',
         metadata: {
           userId: String(user.id),
-          priceExternalId: 'creem_mock_business_monthly',
+          priceExternalId: 'creem_test_business_monthly',
         },
-        product: { id: 'creem_mock_business_monthly' },
+        product: { id: 'creem_test_business_monthly' },
       },
     };
 
@@ -516,7 +516,7 @@ test('Creem webhook covers ignored checkout and subscription edge cases', async 
           object: 'checkout',
           metadata: { kind: 'credit_purchase' },
           order_id: 'ord_missing',
-          product_id: 'creem_mock_50_credits',
+          product_id: 'creem_test_50_credits',
         },
       }),
       env: envFor(d1),
@@ -726,9 +726,9 @@ test('Creem webhook marks processing failures as failed for retry', async () => 
         object: {
           id: 'ch_failed_retry',
           object: 'checkout',
-          metadata: { kind: 'subscription', userId: '1', priceExternalId: 'creem_mock_pro_monthly' },
+          metadata: { kind: 'subscription', userId: '1', priceExternalId: 'creem_test_pro_monthly' },
           subscription: { id: 'sub_failed_retry' },
-          product: { id: 'creem_mock_pro_monthly' },
+          product: { id: 'creem_test_pro_monthly' },
         },
       }),
       env: envFor(failingDb),

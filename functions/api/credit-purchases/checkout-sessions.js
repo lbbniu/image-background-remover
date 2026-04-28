@@ -30,6 +30,12 @@ export async function onRequestPost({ request, env }) {
         { status: 400 },
       );
     }
+    if (platform === 'creem' && !isCreemConfigured(env)) {
+      return Response.json(
+        { success: false, error: 'Creem payment is not configured' },
+        { status: 503 },
+      );
+    }
     if (platform !== 'creem' && !isPaymentMockEnabled(env)) {
       return Response.json(
         { success: false, error: `${platform} mock payment is disabled` },
@@ -54,7 +60,7 @@ export async function onRequestPost({ request, env }) {
     };
 
     let session;
-    if (platform === 'creem' && isCreemConfigured(env)) {
+    if (platform === 'creem') {
       if (!pack.externalId) {
         return Response.json({ success: false, error: 'Creem product ID not configured' }, { status: 400 });
       }
@@ -107,7 +113,7 @@ export async function onRequestPost({ request, env }) {
       platform,
       sessionId,
       checkoutUrl: session.checkout_url || session.checkoutUrl || session.url,
-      mock: !(platform === 'creem' && isCreemConfigured(env)),
+      mock: platform !== 'creem',
     }, { status: 201 });
   } catch (error) {
     console.error('Create checkout session error:', error);
