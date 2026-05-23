@@ -1,6 +1,7 @@
 import { verifyWebhookSignature } from '../../../foundation/integrations/index.js';
 import { getProjectId } from '../../../foundation/modules/core/index.js';
 import { completeCreditPurchase, markPaymentEventProcessed, recordPaymentEvent } from '../../../foundation/modules/payments/index.js';
+import { getPlan } from '../../../foundation/modules/plans/index.js';
 import {
   cancelUserSubscription,
   getSubscriptionOwner,
@@ -16,12 +17,19 @@ export async function onRequestPost(context) {
 
   try {
     const rawBody = await request.text();
+    // 必须配置 PAYPAL_WEBHOOK_ID；显式 PAYPAL_WEBHOOK_ALLOW_UNSIGNED='true' 才允许跳过验签（仅 dev）。
     if (env.PAYPAL_WEBHOOK_ID) {
       const isValid = await verifyWebhookSignature(env, request, rawBody);
       if (!isValid) {
         console.warn('PayPal webhook signature verification failed');
         return new Response('Forbidden', { status: 403 });
       }
+    } else if (env.PAYPAL_WEBHOOK_ALLOW_UNSIGNED !== 'true') {
+      console.error('PAYPAL_WEBHOOK_ID is not configured');
+      return Response.json(
+        { error: 'Webhook signature is required' },
+        { status: 503 },
+      );
     }
 
     const body = JSON.parse(rawBody);
@@ -141,11 +149,18 @@ export async function onRequestPost(context) {
       case 'BILLING.SUBSCRIPTION.RENEWED':
       case 'BILLING.SUBSCRIPTION.PAYMENT.COMPLETED': {
         const nextBillingTime = resource?.billing_info?.next_billing_time;
-        if (nextBillingTime) {
+        const subscriptionId = resource?.id;
+        if (subscriptionId && nextBillingTime) {
+          const owner = await getSubscriptionOwner(env.DB, { projectId, externalId: subscriptionId });
+          const plan = owner?.planId
+            ? await getPlan(env.DB, { projectId, planId: owner.planId })
+            : null;
           await renewSubscriptionPeriod(env.DB, {
             projectId,
-            externalId: resource?.id,
+            externalId: subscriptionId,
             periodEnd: nextBillingTime,
+            monthlyCredits: plan?.creditsMonthly ?? null,
+            planId: owner?.planId,
           });
         }
         break;

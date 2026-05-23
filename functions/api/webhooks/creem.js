@@ -35,6 +35,32 @@ function getCheckoutId(object) {
   return object?.id || object?.checkout_id;
 }
 
+// 从 Creem webhook payload 里读实际付款金额（以分计）。
+// Creem 不同事件 schema 不一致，这里覆盖常见字段：amount / total / order.total_amount。
+// 单位若是浮点（已是元），统一 *100 转分；否则按已是分处理。
+function readPaidAmountCents(object) {
+  const candidates = [
+    object?.amount,
+    object?.amount_total,
+    object?.total,
+    object?.order?.total_amount,
+    object?.order?.amount,
+    object?.payment?.amount,
+  ];
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    const numeric = Number(candidate);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    // 经验法则：< 1000 视为已是分，但 Creem 通常给浮点元，再乘 100。
+    // 为了安全，按字符串里是否有 '.' 判断。
+    const isFloat = typeof candidate === 'string'
+      ? candidate.includes('.')
+      : !Number.isInteger(numeric);
+    return isFloat ? Math.round(numeric * 100) : Math.round(numeric);
+  }
+  return null;
+}
+
 async function handleCheckoutCompleted(d1, { projectId, object, eventId }) {
   const metadata = getMetadata(object);
   const kind = metadata.kind || (object?.subscription || object?.subscription_id ? 'subscription' : 'credit_purchase');
@@ -50,16 +76,21 @@ async function handleCheckoutCompleted(d1, { projectId, object, eventId }) {
     });
     if (!purchase) return 'ignored';
 
+    // 必须从 webhook payload 里取实际金额，不能信任 local pricePaidCents。
+    // Creem 漏字段时用 0，让 completeCreditPurchase 通过 amount_mismatch 拒绝。
+    const paidCents = readPaidAmountCents(object) ?? 0;
+
     const result = await completeCreditPurchase(d1, {
       projectId,
       platform: 'creem',
       externalId: checkoutId,
-      amountPaidCents: purchase.pricePaidCents,
+      amountPaidCents: paidCents,
       metadata: {
         confirmation: 'creem_webhook',
         eventId,
         orderId: getObjectId(object?.order) || object?.order_id,
         productId: getProductId(object),
+        webhookPaidCents: paidCents,
       },
     });
     return result.applied || result.reason === 'already_completed' ? 'processed' : 'failed';
@@ -141,12 +172,20 @@ export async function onRequestPost({ request, env }) {
 
   try {
     const rawBody = await request.text();
+    // 必须配置 CREEM_WEBHOOK_SECRET。生产场景下允许 CREEM_WEBHOOK_ALLOW_UNSIGNED='true'
+    // 显式开启"开发模式不验签"，否则任何未配密钥的实例都直接拒绝处理。
     if (env.CREEM_WEBHOOK_SECRET) {
       const isValid = await verifyCreemWebhookSignature(env, request, rawBody);
       if (!isValid) {
         console.warn('Creem webhook signature verification failed');
         return new Response('Forbidden', { status: 403 });
       }
+    } else if (env.CREEM_WEBHOOK_ALLOW_UNSIGNED !== 'true') {
+      console.error('CREEM_WEBHOOK_SECRET is not configured');
+      return Response.json(
+        { error: 'Webhook signature is required' },
+        { status: 503 },
+      );
     }
 
     if (!env.DB) {

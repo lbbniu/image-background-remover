@@ -20,11 +20,15 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestDelete(context) {
+  const { env } = context;
   return Response.json(
     { authenticated: false },
     {
       headers: {
-        'Set-Cookie': clearAuthCookie(context.env.COOKIE_DOMAIN || ''),
+        'Set-Cookie': clearAuthCookie({
+          cookieDomain: env.COOKIE_DOMAIN || '',
+          secure: env.COOKIE_SECURE === 'false' ? false : true,
+        }),
       },
     },
   );

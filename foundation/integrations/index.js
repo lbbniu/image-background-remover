@@ -2,6 +2,8 @@ export {
   captureOrder,
   createOrder,
   getAccessToken,
+  getApiBase,
+  getDefaultCurrency,
   getSubscriptionDetails,
   verifyWebhookSignature,
 } from './paypal.js';

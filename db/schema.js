@@ -19,6 +19,7 @@ export const oauthAccounts = sqliteTable('oauth_accounts', {
   platform: text('platform').notNull(),
   externalId: text('external_id').notNull(),
   email: text('email'),
+  emailVerified: integer('email_verified').default(0),
   name: text('name'),
   avatar: text('avatar'),
   accessToken: text('access_token'),

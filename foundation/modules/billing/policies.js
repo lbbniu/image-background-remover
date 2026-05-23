@@ -2,20 +2,16 @@ import { and, eq } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { usagePricing } from '../../../db/schema.js';
 
-const DEFAULT_USAGE_PRICING = {
-  'background.remove:photoroom': {
-    credits: 2,
-    costEstimateCents: 2,
-  },
-  'background.remove:bria': {
-    credits: 2,
-    costEstimateCents: 2,
-  },
-  'background.remove:removebg': {
-    credits: 10,
-    costEstimateCents: 20,
-  },
-};
+// 这里只保留示例性的 fallback：调用方应当把项目自己的计价规则写入 usage_pricing 表，
+// 或者通过 options.defaults 注入。`useBuiltinDefaults: false` 可彻底关闭兜底，
+// 让计价缺失时直接抛错（推荐生产开启）。
+export const BACKGROUND_REMOVAL_DEFAULTS = Object.freeze({
+  'background.remove:photoroom': { credits: 2, costEstimateCents: 2 },
+  'background.remove:bria': { credits: 2, costEstimateCents: 2 },
+  'background.remove:removebg': { credits: 10, costEstimateCents: 20 },
+});
+
+const BUILT_IN_DEFAULTS = BACKGROUND_REMOVAL_DEFAULTS;
 
 function normalizeKeyPart(value) {
   return String(value || '').trim().toLowerCase();
@@ -120,22 +116,32 @@ async function getDatabasePricingEntry(d1, { projectId, action, variant }) {
   }
 }
 
-function getDefaultPricingEntry({ projectId, action, variant }) {
-  return getPricingEntry(DEFAULT_USAGE_PRICING, { projectId, action, variant });
-}
-
-export async function resolveUsageCharge(d1, { projectId, action, variant, metadata }) {
+export async function resolveUsageCharge(d1, { projectId, action, variant, metadata }, options = {}) {
+  const { defaults, useBuiltinDefaults = true } = options;
   const normalizedAction = normalizeKeyPart(action);
   const normalizedVariant = normalizeKeyPart(variant);
-  const match = await getDatabasePricingEntry(d1, {
-    projectId,
-    action: normalizedAction,
-    variant: normalizedVariant,
-  }) || getDefaultPricingEntry({
+
+  const dbMatch = await getDatabasePricingEntry(d1, {
     projectId,
     action: normalizedAction,
     variant: normalizedVariant,
   });
+
+  let match = dbMatch;
+  if (!match && defaults) {
+    match = getPricingEntry(defaults, {
+      projectId,
+      action: normalizedAction,
+      variant: normalizedVariant,
+    });
+  }
+  if (!match && useBuiltinDefaults) {
+    match = getPricingEntry(BUILT_IN_DEFAULTS, {
+      projectId,
+      action: normalizedAction,
+      variant: normalizedVariant,
+    });
+  }
 
   if (!match) {
     throw new Error(`Usage pricing not configured: ${normalizedAction}${normalizedVariant ? `:${normalizedVariant}` : ''}`);

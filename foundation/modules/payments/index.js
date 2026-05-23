@@ -2,6 +2,7 @@ export {
   addPurchasedCredits,
   completeCreditPurchase,
   createPendingCreditPurchase,
+  createPendingCreditPurchaseByPackage,
   getCreditPackage,
   getCreditPurchaseByExternalId,
   listCreditPackages,

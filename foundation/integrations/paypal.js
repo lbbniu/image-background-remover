@@ -1,22 +1,72 @@
 // PayPal API 工具库（Cloudflare Workers 兼容，无 Node.js 依赖）
 
-const DEFAULT_API_BASE = 'https://api-m.sandbox.paypal.com';
+const PROD_API_BASE = 'https://api-m.paypal.com';
+const SANDBOX_API_BASE = 'https://api-m.sandbox.paypal.com';
 
-/**
- * 获取 PayPal OAuth 2.0 Access Token
- */
-export async function getAccessToken(env) {
+function isSandboxMode(env) {
+  if (typeof env.PAYPAL_API_BASE === 'string' && env.PAYPAL_API_BASE.length) return null;
+  return env.PAYPAL_SANDBOX === 'true' || env.PAYPAL_ENV === 'sandbox';
+}
+
+export function getApiBase(env) {
+  if (env.PAYPAL_API_BASE) return env.PAYPAL_API_BASE;
+  return isSandboxMode(env) ? SANDBOX_API_BASE : PROD_API_BASE;
+}
+
+export function getDefaultCurrency(env) {
+  return env.PAYPAL_CURRENCY || 'USD';
+}
+
+// access_token 缓存：默认 9 小时（PayPal 一般 9h TTL，留 60s 余量）。
+// 通过 env.PAYPAL_TOKEN_CACHE 可注入符合 KV-like 接口（put/get with json）的存储层；
+// 否则使用模块级内存缓存。
+const memoryTokenCache = new Map();
+
+function tokenCacheKey(env) {
+  return `paypal:token:${env.PAYPAL_CLIENT_ID || 'default'}:${getApiBase(env)}`;
+}
+
+async function readCachedToken(env) {
+  const key = tokenCacheKey(env);
+  const store = env.PAYPAL_TOKEN_CACHE;
+  if (store && typeof store.get === 'function') {
+    const cached = await store.get(key, { type: 'json' }).catch(() => null);
+    if (cached?.accessToken && cached.expiresAt > Date.now()) {
+      return cached.accessToken;
+    }
+    return null;
+  }
+  const cached = memoryTokenCache.get(key);
+  if (cached?.expiresAt > Date.now()) return cached.accessToken;
+  return null;
+}
+
+async function writeCachedToken(env, { accessToken, expiresInSeconds }) {
+  const key = tokenCacheKey(env);
+  const ttl = Math.max(60, Math.floor(expiresInSeconds) - 60);
+  const expiresAt = Date.now() + ttl * 1000;
+  const store = env.PAYPAL_TOKEN_CACHE;
+  if (store && typeof store.put === 'function') {
+    await store.put(key, JSON.stringify({ accessToken, expiresAt }), { expirationTtl: ttl }).catch(() => null);
+    return;
+  }
+  memoryTokenCache.set(key, { accessToken, expiresAt });
+}
+
+export async function getAccessToken(env, { force = false } = {}) {
   const clientId = env.PAYPAL_CLIENT_ID;
   const clientSecret = env.PAYPAL_CLIENT_SECRET;
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-
   if (!clientId || !clientSecret) {
     throw new Error('PayPal credentials not configured');
   }
 
-  const auth = btoa(`${clientId}:${clientSecret}`);
+  if (!force) {
+    const cached = await readCachedToken(env);
+    if (cached) return cached;
+  }
 
-  const response = await fetch(`${apiBase}/v1/oauth2/token`, {
+  const auth = btoa(`${clientId}:${clientSecret}`);
+  const response = await fetch(`${getApiBase(env)}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${auth}`,
@@ -31,27 +81,49 @@ export async function getAccessToken(env) {
   }
 
   const data = await response.json();
+  await writeCachedToken(env, {
+    accessToken: data.access_token,
+    expiresInSeconds: Number(data.expires_in) || 32400,
+  });
   return data.access_token;
 }
 
-/**
- * 创建一次性支付订单 (Orders API v2)
- */
-export async function createOrder(env, amount, description, { customId, invoiceId } = {}) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
+async function paypalFetch(env, path, init = {}, { retryOnAuth = true } = {}) {
   const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v2/checkout/orders`, {
-    method: 'POST',
+  const response = await fetch(`${getApiBase(env)}${path}`, {
+    ...init,
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
+      ...(init.headers || {}),
     },
+  });
+
+  if (response.status === 401 && retryOnAuth) {
+    await getAccessToken(env, { force: true });
+    return paypalFetch(env, path, init, { retryOnAuth: false });
+  }
+  return response;
+}
+
+async function ensureOk(response, label) {
+  if (response.ok) return response;
+  const error = await response.text();
+  throw new Error(`PayPal ${label} failed: ${response.status} ${error}`);
+}
+
+export async function createOrder(env, amount, description, {
+  customId,
+  invoiceId,
+  currency,
+} = {}) {
+  const response = await paypalFetch(env, '/v2/checkout/orders', {
+    method: 'POST',
     body: JSON.stringify({
       intent: 'CAPTURE',
       purchase_units: [{
         amount: {
-          currency_code: 'USD',
+          currency_code: currency || getDefaultCurrency(env),
           value: amount,
         },
         description,
@@ -60,74 +132,25 @@ export async function createOrder(env, amount, description, { customId, invoiceI
       }],
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal create order failed: ${response.status} ${error}`);
-  }
-
+  await ensureOk(response, 'create order');
   return response.json();
 }
 
-/**
- * 获取订单详情。用于 webhook 补偿时校验订单状态和金额。
- */
 export async function getOrderDetails(env, orderId) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v2/checkout/orders/${orderId}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal get order failed: ${response.status} ${error}`);
-  }
-
+  const response = await paypalFetch(env, `/v2/checkout/orders/${orderId}`, { method: 'GET' });
+  await ensureOk(response, 'get order');
   return response.json();
 }
 
-/**
- * 确认（捕获）订单支付
- */
 export async function captureOrder(env, orderId) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v2/checkout/orders/${orderId}/capture`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal capture order failed: ${response.status} ${error}`);
-  }
-
+  const response = await paypalFetch(env, `/v2/checkout/orders/${orderId}/capture`, { method: 'POST' });
+  await ensureOk(response, 'capture order');
   return response.json();
 }
 
-/**
- * 创建产品（Subscriptions API 前置步骤）
- */
 export async function createProduct(env, name, description) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v1/catalogs/products`, {
+  const response = await paypalFetch(env, '/v1/catalogs/products', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       name,
       description,
@@ -135,29 +158,13 @@ export async function createProduct(env, name, description) {
       category: 'SOFTWARE',
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal create product failed: ${response.status} ${error}`);
-  }
-
+  await ensureOk(response, 'create product');
   return response.json();
 }
 
-/**
- * 创建订阅计划 (Billing Plan)
- * planData: { name, description, interval_unit: 'MONTH'|'YEAR', interval_count: 1, price: '9.90' }
- */
 export async function createPlan(env, productId, planData) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v1/billing/plans`, {
+  const response = await paypalFetch(env, '/v1/billing/plans', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       product_id: productId,
       name: planData.name,
@@ -171,11 +178,11 @@ export async function createPlan(env, productId, planData) {
           },
           tenure_type: 'REGULAR',
           sequence: 1,
-          total_cycles: 0, // 0 = infinite
+          total_cycles: 0,
           pricing_scheme: {
             fixed_price: {
               value: planData.price,
-              currency_code: 'USD',
+              currency_code: planData.currency || getDefaultCurrency(env),
             },
           },
         },
@@ -186,56 +193,33 @@ export async function createPlan(env, productId, planData) {
       },
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal create plan failed: ${response.status} ${error}`);
-  }
-
+  await ensureOk(response, 'create plan');
   return response.json();
 }
 
-/**
- * 创建订阅
- */
-export async function createSubscription(env, planId) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v1/billing/subscriptions`, {
+export async function createSubscription(env, planId, {
+  brandName,
+  locale = 'en-US',
+} = {}) {
+  const response = await paypalFetch(env, '/v1/billing/subscriptions', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       plan_id: planId,
       application_context: {
-        brand_name: 'ClearCut AI',
-        locale: 'en-US',
+        brand_name: brandName || env.PAYPAL_BRAND_NAME || 'Subscription',
+        locale,
         shipping_preference: 'NO_SHIPPING',
         user_action: 'SUBSCRIBE_NOW',
       },
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal create subscription failed: ${response.status} ${error}`);
-  }
-
+  await ensureOk(response, 'create subscription');
   return response.json();
 }
 
 /**
- * 验证 PayPal Webhook 签名（调用 PayPal 官方验签 API）
- *
- * 必须传入原始请求体字符串（rawBody），不可经过 JSON.parse → JSON.stringify 重序列化，
- * 否则字节变化会导致验签失败。
- *
- * 需要在 Cloudflare env 中配置 PAYPAL_WEBHOOK_ID。
- *
- * @returns {Promise<boolean>} true = 签名合法
+ * 验证 PayPal Webhook 签名（调用 PayPal 官方验签 API）。
+ * 必须传入原始 rawBody，不能再 JSON.parse → JSON.stringify。
  */
 export async function verifyWebhookSignature(env, request, rawBody) {
   const webhookId = env.PAYPAL_WEBHOOK_ID;
@@ -253,15 +237,8 @@ export async function verifyWebhookSignature(env, request, rawBody) {
     return false;
   }
 
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v1/notifications/verify-webhook-signature`, {
+  const response = await paypalFetch(env, '/v1/notifications/verify-webhook-signature', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       auth_algo: authAlgo,
       cert_url: certUrl,
@@ -272,35 +249,13 @@ export async function verifyWebhookSignature(env, request, rawBody) {
       webhook_event: JSON.parse(rawBody),
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal verify webhook failed: ${response.status} ${error}`);
-  }
-
+  await ensureOk(response, 'verify webhook');
   const data = await response.json();
   return data.verification_status === 'SUCCESS';
 }
 
-/**
- * 获取订阅详情
- */
 export async function getSubscriptionDetails(env, subscriptionId) {
-  const apiBase = env.PAYPAL_API_BASE || DEFAULT_API_BASE;
-  const accessToken = await getAccessToken(env);
-
-  const response = await fetch(`${apiBase}/v1/billing/subscriptions/${subscriptionId}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`PayPal get subscription failed: ${response.status} ${error}`);
-  }
-
+  const response = await paypalFetch(env, `/v1/billing/subscriptions/${subscriptionId}`, { method: 'GET' });
+  await ensureOk(response, 'get subscription');
   return response.json();
 }

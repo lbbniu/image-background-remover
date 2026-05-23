@@ -4,16 +4,37 @@ import { getDb } from '../../../db/client.js';
 import { oauthAccounts, users } from '../../../db/schema.js';
 import { ensureUserQuota } from '../credits/service.js';
 
-/**
- * 查找或创建 OAuth 用户
- * - 已有关联 → 更新信息，返回 userId
- * - 同 email 已有账号 → 自动关联，返回 userId
- * - 全新用户 → 创建用户 + OAuth 关联，返回 userId
- */
-export async function findOrCreateOAuthUser(db, { platform, externalId, email, name, avatar, projectId }) {
-  const orm = getDb(db);
+// 仅当 email 已被 provider 验证、并且开关未关闭时，才把同 email 的本地账号自动 link。
+// 否则只能新建用户（避免攻击者用受害者邮箱在未验证渠道注册后接管账号）。
+function shouldAutoLinkByEmail({ email, emailVerified, allowAutoLink }) {
+  if (!email) return false;
+  if (allowAutoLink === false) return false;
+  return emailVerified === true;
+}
 
-  // 1. 查找已有的 OAuth 关联
+function nullableEmail(email) {
+  return typeof email === 'string' && email.length > 0 ? email : null;
+}
+
+export async function findOrCreateOAuthUser(d1, {
+  platform,
+  externalId,
+  email,
+  emailVerified = false,
+  name,
+  avatar,
+  projectId,
+  allowAutoLink = true,
+  giftedCredits,
+}) {
+  if (!platform || !externalId) {
+    throw new Error('OAuth platform and externalId are required');
+  }
+
+  const orm = getDb(d1);
+  const normalizedEmail = nullableEmail(email);
+
+  // 1. 已有 OAuth 关联 → 同步可用字段，并刷新登录时间
   const existing = await orm
     .select({ userId: oauthAccounts.userId })
     .from(oauthAccounts)
@@ -22,35 +43,46 @@ export async function findOrCreateOAuthUser(db, { platform, externalId, email, n
     .get();
 
   if (existing) {
-    // 更新用户信息
     await orm
       .update(users)
-      .set({ name, avatar, updatedAt: sql`datetime('now')`, lastLogin: sql`datetime('now')` })
+      .set({
+        name: sql`COALESCE(${name ?? null}, ${users.name})`,
+        avatar: sql`COALESCE(${avatar ?? null}, ${users.avatar})`,
+        updatedAt: sql`datetime('now')`,
+        lastLogin: sql`datetime('now')`,
+      })
       .where(eq(users.id, existing.userId))
       .run();
+
     await orm
       .update(oauthAccounts)
-      .set({ name, avatar, email, updatedAt: sql`datetime('now')` })
+      .set({
+        name: sql`COALESCE(${name ?? null}, ${oauthAccounts.name})`,
+        avatar: sql`COALESCE(${avatar ?? null}, ${oauthAccounts.avatar})`,
+        email: sql`COALESCE(${normalizedEmail}, ${oauthAccounts.email})`,
+        emailVerified: emailVerified ? 1 : 0,
+        updatedAt: sql`datetime('now')`,
+      })
       .where(and(eq(oauthAccounts.platform, platform), eq(oauthAccounts.externalId, externalId)))
       .run();
     return existing.userId;
   }
 
-  // 2. 检查是否有相同 email 的用户（自动关联）
+  // 2. 仅在 email 已验证时，按 email 自动 link
   let userId;
-  if (email) {
+  if (shouldAutoLinkByEmail({ email: normalizedEmail, emailVerified, allowAutoLink })) {
     const userByEmail = await orm
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, email))
+      .where(eq(users.email, normalizedEmail))
       .get();
     if (userByEmail) {
       userId = userByEmail.id;
       await orm
         .update(users)
         .set({
-          name: sql`COALESCE(${name}, ${users.name})`,
-          avatar: sql`COALESCE(${avatar}, ${users.avatar})`,
+          name: sql`COALESCE(${name ?? null}, ${users.name})`,
+          avatar: sql`COALESCE(${avatar ?? null}, ${users.avatar})`,
           updatedAt: sql`datetime('now')`,
           lastLogin: sql`datetime('now')`,
         })
@@ -63,18 +95,30 @@ export async function findOrCreateOAuthUser(db, { platform, externalId, email, n
   if (!userId) {
     const result = await orm
       .insert(users)
-      .values({ email, name, avatar })
+      .values({ email: normalizedEmail, name: name ?? null, avatar: avatar ?? null })
       .returning({ id: users.id })
       .get();
     userId = result.id;
-    // 新用户送3次额度
-    await ensureUserQuota(db, { userId, projectId });
+    // 防滥用：未验证邮箱的渠道（GitHub no-public-email、Twitter 等）不发新人赠送积分。
+    // 调用方若想绕开（信任的内部渠道）显式传 giftedCredits=0 之外的值并 emailVerified=true。
+    const safeGifted = emailVerified === true && Number(giftedCredits) > 0
+      ? giftedCredits
+      : 0;
+    await ensureUserQuota(d1, { userId, projectId, giftedCredits: safeGifted });
   }
 
   // 4. 创建 OAuth 关联
   await orm
     .insert(oauthAccounts)
-    .values({ userId, platform, externalId, email, name, avatar })
+    .values({
+      userId,
+      platform,
+      externalId,
+      email: normalizedEmail,
+      emailVerified: emailVerified ? 1 : 0,
+      name: name ?? null,
+      avatar: avatar ?? null,
+    })
     .run();
 
   return userId;

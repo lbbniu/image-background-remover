@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS oauth_accounts (
   platform TEXT NOT NULL,          -- 'google', 'github', 'wechat' ...
   external_id TEXT NOT NULL,       -- 第三方平台账号唯一 ID
   email TEXT,
+  email_verified INTEGER DEFAULT 0,-- 1 表示该 email 已被 OAuth 提供方验证
   name TEXT,
   avatar TEXT,
   access_token TEXT,
@@ -252,8 +253,13 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(project_id,
 CREATE INDEX IF NOT EXISTS idx_subscriptions_external ON subscriptions(platform, external_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_user_project ON usage_logs(user_id, project_id);
 CREATE INDEX IF NOT EXISTS idx_usage_logs_created ON usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_logs_project_job ON usage_logs(project_id, job_id);
 CREATE INDEX IF NOT EXISTS idx_credit_purchases_user ON credit_purchases(user_id, project_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_purchases_payment ON credit_purchases(platform, external_id);
+CREATE INDEX IF NOT EXISTS idx_credit_purchases_project_platform ON credit_purchases(project_id, platform, external_id);
 CREATE INDEX IF NOT EXISTS idx_payment_events_resource ON payment_events(platform, resource_id);
+CREATE INDEX IF NOT EXISTS idx_payment_events_project_platform ON payment_events(project_id, platform, external_id);
 CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_project ON credit_transactions(user_id, project_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_transactions_external ON credit_transactions(project_id, platform, external_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_active_per_user
+  ON subscriptions(user_id, project_id) WHERE status = 'active';

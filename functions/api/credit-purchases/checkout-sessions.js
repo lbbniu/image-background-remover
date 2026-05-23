@@ -1,6 +1,6 @@
 import { getUser } from '../../../foundation/modules/auth/index.js';
 import { getProjectId } from '../../../foundation/modules/core/index.js';
-import { createPendingCreditPurchase, getCreditPackage } from '../../../foundation/modules/payments/index.js';
+import { createPendingCreditPurchaseByPackage, getCreditPackage } from '../../../foundation/modules/payments/index.js';
 import {
   createCreemCheckout,
   createMockCheckoutSession,
@@ -98,13 +98,11 @@ export async function onRequestPost({ request, env }) {
       return Response.json({ success: false, error: 'Checkout session ID missing' }, { status: 502 });
     }
 
-    await createPendingCreditPurchase(env.DB, {
+    await createPendingCreditPurchaseByPackage(env.DB, {
       userId: user.sub,
       projectId,
-      packageName: pack.label,
-      credits: pack.credits,
-      pricePaidCents: pack.amountCents,
       platform,
+      packageId: pack.packageId,
       externalId: sessionId,
     });
 

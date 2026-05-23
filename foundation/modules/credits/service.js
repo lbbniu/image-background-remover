@@ -7,29 +7,40 @@ import {
   usageLogs,
   userQuotas,
 } from '../../../db/schema.js';
+import {
+  CREDIT_SOURCES,
+  CREDIT_SOURCE_LIST,
+  CREDIT_TX_TYPES,
+  PAYMENT_PLATFORMS,
+  SUBSCRIPTION_STATUS,
+  USAGE_LOG_STATUS,
+} from '../core/constants.js';
+import {
+  addMonthsUtc,
+  isExpiredUtc,
+  monthPeriodFromUtc,
+  utcDate,
+} from '../core/time.js';
+
+const VALID_SOURCES = new Set(CREDIT_SOURCE_LIST);
 
 export function getCreditConsumeOrder(env) {
-  const allowed = new Set(['monthly', 'purchased', 'gifted']);
-  const configured = (env?.CREDIT_CONSUME_ORDER || 'monthly,purchased,gifted')
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => allowed.has(item));
+  const raw = env?.CREDIT_CONSUME_ORDER;
+  const fallback = [...CREDIT_SOURCE_LIST];
+  if (!raw) return fallback;
 
-  return [...new Set(configured)].length ? [...new Set(configured)] : ['monthly', 'purchased', 'gifted'];
-}
-
-function monthPeriodFrom(date) {
-  return {
-    periodStart: new Date(date.getFullYear(), date.getMonth(), 1).toISOString(),
-    periodEnd: new Date(date.getFullYear(), date.getMonth() + 1, 1).toISOString(),
-  };
-}
-
-function nextPeriodFrom(periodEnd) {
-  return {
-    periodStart: periodEnd.toISOString(),
-    periodEnd: new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, periodEnd.getDate()).toISOString(),
-  };
+  const seen = new Set();
+  const ordered = [];
+  for (const item of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!VALID_SOURCES.has(item)) {
+      console.warn(`[credits] CREDIT_CONSUME_ORDER ignores unknown source: ${item}`);
+      continue;
+    }
+    if (seen.has(item)) continue;
+    seen.add(item);
+    ordered.push(item);
+  }
+  return ordered.length ? ordered : fallback;
 }
 
 function toCreditBalance(quota, subscription) {
@@ -45,7 +56,9 @@ function toCreditBalance(quota, subscription) {
     purchasedRemaining,
     giftedRemaining,
     plan: quota.planId,
-    subscriptionStatus: subscription?.status || 'inactive',
+    subscriptionStatus: subscription?.status || SUBSCRIPTION_STATUS.expired,
+    hasSubscription: Boolean(subscription),
+    periodStart: quota.periodStart,
     periodEnd: quota.periodEnd,
     totalUsed: quota.totalUsed || 0,
   };
@@ -54,7 +67,6 @@ function toCreditBalance(quota, subscription) {
 function parseMetadata(value) {
   if (!value) return null;
   if (typeof value === 'object') return value;
-
   try {
     return JSON.parse(value);
   } catch {
@@ -71,7 +83,8 @@ function toPositiveInteger(value, fallback, max) {
 
 export async function ensureUserQuota(d1, { userId, projectId, giftedCredits = 3 }) {
   const db = getDb(d1);
-  const period = monthPeriodFrom(new Date());
+  const period = monthPeriodFromUtc();
+  const safeGifted = Math.max(0, Math.floor(Number(giftedCredits) || 0));
 
   await db
     .insert(userQuotas)
@@ -79,7 +92,7 @@ export async function ensureUserQuota(d1, { userId, projectId, giftedCredits = 3
       userId: Number(userId),
       projectId,
       planId: 'free',
-      creditsGifted: giftedCredits,
+      creditsGifted: safeGifted,
       periodStart: period.periodStart,
       periodEnd: period.periodEnd,
       creditsMonthly: 0,
@@ -88,16 +101,16 @@ export async function ensureUserQuota(d1, { userId, projectId, giftedCredits = 3
     .onConflictDoNothing({ target: [userQuotas.userId, userQuotas.projectId] })
     .run();
 
-  if (giftedCredits > 0) {
+  if (safeGifted > 0) {
     await db
       .insert(creditTransactions)
       .values({
         userId: Number(userId),
         projectId,
-        type: 'gift',
-        source: 'gifted',
-        amount: giftedCredits,
-        platform: 'system',
+        type: CREDIT_TX_TYPES.gift,
+        source: CREDIT_SOURCES.gifted,
+        amount: safeGifted,
+        platform: PAYMENT_PLATFORMS.system,
         externalId: `signup:${projectId}:${userId}`,
       })
       .onConflictDoNothing({
@@ -108,31 +121,74 @@ export async function ensureUserQuota(d1, { userId, projectId, giftedCredits = 3
 }
 
 async function getCurrentSubscription(db, { userId, projectId }) {
+  // 同一 user/project 可能存在多条历史 sub（一条 active + 旧的 cancelled/past_due）。
+  // 必须显式按 active 优先 + updated_at 倒序取，不能依赖 .get() 的隐式顺序。
   return db
     .select()
     .from(subscriptions)
     .where(and(
       eq(subscriptions.userId, Number(userId)),
       eq(subscriptions.projectId, projectId),
-      sql`${subscriptions.status} IN ('active', 'cancelled', 'past_due')`,
+      sql`${subscriptions.status} IN ('active','cancelled','past_due','paused')`,
     ))
+    .orderBy(
+      sql`CASE ${subscriptions.status}
+            WHEN 'active' THEN 0
+            WHEN 'past_due' THEN 1
+            WHEN 'paused' THEN 2
+            WHEN 'cancelled' THEN 3
+            ELSE 4 END`,
+      desc(subscriptions.updatedAt),
+      desc(subscriptions.id),
+    )
     .get();
+}
+
+async function getPlanMonthlyCredits(db, { planId, projectId }) {
+  if (!planId) return 0;
+  const plan = await db
+    .select({ creditsMonthly: subscriptionPlans.creditsMonthly })
+    .from(subscriptionPlans)
+    .where(and(eq(subscriptionPlans.id, planId), eq(subscriptionPlans.projectId, projectId)))
+    .get();
+  return plan?.creditsMonthly || 0;
 }
 
 async function refreshSubscriptionPeriod(d1, quota, subscription) {
   const db = getDb(d1);
-  const periodEnd = quota.periodEnd ? new Date(quota.periodEnd) : null;
-  if (!periodEnd || periodEnd > new Date()) return quota;
+  if (!quota?.periodEnd) return quota;
+  if (!isExpiredUtc(quota.periodEnd)) return quota;
 
-  if (subscription?.status === 'active') {
-    const plan = await db
-      .select({ creditsMonthly: subscriptionPlans.creditsMonthly })
-      .from(subscriptionPlans)
-      .where(and(eq(subscriptionPlans.id, subscription.planId), eq(subscriptionPlans.projectId, quota.projectId)))
-      .get();
-    const next = nextPeriodFrom(periodEnd);
+  const projectId = quota.projectId;
+  const status = subscription?.status;
+  // 用户已请求"周期末取消"：不再自动续期，按 cancelled 路径走（下一次 refresh 会变 expired）。
+  const cancelAtPeriodEnd = subscription?.cancelAtPeriodEnd === 1;
 
-    await d1.batch([
+  // active：自动续期 → 把 periodEnd 推进到当前时刻所在周期，每个跳过的周期单独写一条流水，
+  // 确保即使 webhook 长时间故障，也能在下次访问时一次性补齐。
+  if (status === SUBSCRIPTION_STATUS.active && !cancelAtPeriodEnd) {
+    const monthlyCredits = await getPlanMonthlyCredits(db, {
+      planId: subscription.planId,
+      projectId,
+    });
+
+    const periods = [];
+    let cursorStart = utcDate(quota.periodEnd);
+    let cursorEnd = addMonthsUtc(cursorStart, 1);
+    // 最多补 60 期防止脏数据导致死循环；正常运行下 1 次即够。
+    for (let i = 0; i < 60 && isExpiredUtc(cursorStart); i += 1) {
+      periods.push({
+        start: cursorStart.toISOString(),
+        end: cursorEnd.toISOString(),
+      });
+      if (!isExpiredUtc(cursorEnd)) break;
+      cursorStart = cursorEnd;
+      cursorEnd = addMonthsUtc(cursorStart, 1);
+    }
+    if (!periods.length) return quota;
+
+    const finalPeriod = periods[periods.length - 1];
+    const statements = [
       d1.prepare(`
         UPDATE user_quotas
         SET period_used = 0,
@@ -141,38 +197,53 @@ async function refreshSubscriptionPeriod(d1, quota, subscription) {
             period_end = ?,
             updated_at = datetime('now')
         WHERE user_id = ? AND project_id = ?
-      `).bind(plan?.creditsMonthly || 0, next.periodStart, next.periodEnd, quota.userId, quota.projectId),
+          AND period_end = ?
+      `).bind(monthlyCredits, finalPeriod.start, finalPeriod.end, quota.userId, projectId, quota.periodEnd),
       d1.prepare(`
         UPDATE subscriptions
         SET current_period_start = ?,
             current_period_end = ?,
             updated_at = datetime('now')
         WHERE id = ?
-      `).bind(next.periodStart, next.periodEnd, subscription.id),
-      d1.prepare(`
+          AND current_period_end = ?
+      `).bind(finalPeriod.start, finalPeriod.end, subscription.id, quota.periodEnd),
+    ];
+    for (const { start } of periods) {
+      statements.push(d1.prepare(`
         INSERT OR IGNORE INTO credit_transactions
           (user_id, project_id, type, source, amount, platform, external_id, metadata)
-        VALUES (?, ?, 'subscription', 'monthly', ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         quota.userId,
-        quota.projectId,
-        plan?.creditsMonthly || 0,
+        projectId,
+        CREDIT_TX_TYPES.subscription,
+        CREDIT_SOURCES.monthly,
+        monthlyCredits,
         subscription.platform,
-        `subscription:${subscription.externalId}:${next.periodStart}`,
-        JSON.stringify({ planId: subscription.planId }),
-      ),
-    ]);
+        `subscription:${subscription.externalId}:${start}`,
+        JSON.stringify({
+          planId: subscription.planId,
+          ...(periods.length > 1 ? { catchUp: true, totalPeriods: periods.length } : {}),
+        }),
+      ));
+    }
+
+    const [updateResult] = await d1.batch(statements);
+    // 并发场景：另一并发调用已经把 period_end 推进，本次没改任何行，直接返回原 quota
+    if (!updateResult.meta?.changes) return quota;
 
     return {
       ...quota,
       periodUsed: 0,
-      creditsMonthly: plan?.creditsMonthly || 0,
-      periodStart: next.periodStart,
-      periodEnd: next.periodEnd,
+      creditsMonthly: monthlyCredits,
+      periodStart: finalPeriod.start,
+      periodEnd: finalPeriod.end,
     };
   }
 
-  if (subscription?.status === 'cancelled') {
+  // cancelled 或 active+cancelAtPeriodEnd：到期不再续费，标记为 expired 并清空月度额度
+  if (status === SUBSCRIPTION_STATUS.cancelled
+      || (status === SUBSCRIPTION_STATUS.active && cancelAtPeriodEnd)) {
     await d1.batch([
       d1.prepare(`
         UPDATE user_quotas
@@ -180,24 +251,36 @@ async function refreshSubscriptionPeriod(d1, quota, subscription) {
             period_used = 0,
             updated_at = datetime('now')
         WHERE user_id = ? AND project_id = ?
-      `).bind(quota.userId, quota.projectId),
+          AND period_end = ?
+      `).bind(quota.userId, projectId, quota.periodEnd),
       d1.prepare(`
         UPDATE subscriptions
-        SET status = 'expired',
-            updated_at = datetime('now')
-        WHERE id = ?
-      `).bind(subscription.id),
+        SET status = ?, updated_at = datetime('now') WHERE id = ?
+      `).bind(SUBSCRIPTION_STATUS.expired, subscription.id),
     ]);
-
     return { ...quota, creditsMonthly: 0, periodUsed: 0 };
   }
 
+  // past_due / paused：到期视为冻结，月度额度归零，等待外部 webhook 决定续费/取消
+  if (status === SUBSCRIPTION_STATUS.pastDue || status === SUBSCRIPTION_STATUS.paused) {
+    await d1.prepare(`
+      UPDATE user_quotas
+      SET credits_monthly = 0,
+          period_used = 0,
+          updated_at = datetime('now')
+      WHERE user_id = ? AND project_id = ?
+        AND period_end = ?
+    `).bind(quota.userId, projectId, quota.periodEnd).run();
+    return { ...quota, creditsMonthly: 0, periodUsed: 0 };
+  }
+
+  // 没有有效订阅（free 或 expired）：不做任何变更
   return quota;
 }
 
 export async function getUserCreditBalance(d1, { userId, projectId }) {
   const db = getDb(d1);
-  await ensureUserQuota(d1, { userId, projectId });
+  await ensureUserQuota(d1, { userId, projectId, giftedCredits: 0 });
 
   const quota = await db
     .select()
@@ -264,8 +347,10 @@ export async function listUserCreditTransactions(d1, {
   };
 }
 
-function consumeStatement(d1, { userId, projectId, credits, source }) {
-  if (source === 'monthly') {
+function consumeStatement(d1, { userId, projectId, jobId, credits, source }) {
+  // 同一个 batch 内：先扣额度，再把"持有的 pending 行"翻成 success；
+  // WHERE 子句要求当前 usage_logs 仍是 pending，避免被并发的 refund/失败抢占。
+  if (source === CREDIT_SOURCES.monthly) {
     return d1.prepare(`
       UPDATE user_quotas
       SET period_used = period_used + ?,
@@ -273,10 +358,14 @@ function consumeStatement(d1, { userId, projectId, credits, source }) {
           updated_at = datetime('now')
       WHERE user_id = ? AND project_id = ?
         AND (credits_monthly - period_used) >= ?
-    `).bind(credits, credits, Number(userId), projectId, credits);
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND project_id = ? AND status = 'pending'
+        )
+    `).bind(credits, credits, Number(userId), projectId, credits, jobId, projectId);
   }
 
-  if (source === 'purchased') {
+  if (source === CREDIT_SOURCES.purchased) {
     return d1.prepare(`
       UPDATE user_quotas
       SET credits_purchased = credits_purchased - ?,
@@ -284,10 +373,14 @@ function consumeStatement(d1, { userId, projectId, credits, source }) {
           updated_at = datetime('now')
       WHERE user_id = ? AND project_id = ?
         AND credits_purchased >= ?
-    `).bind(credits, credits, Number(userId), projectId, credits);
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND project_id = ? AND status = 'pending'
+        )
+    `).bind(credits, credits, Number(userId), projectId, credits, jobId, projectId);
   }
 
-  if (source === 'gifted') {
+  if (source === CREDIT_SOURCES.gifted) {
     return d1.prepare(`
       UPDATE user_quotas
       SET credits_gifted = credits_gifted - ?,
@@ -295,29 +388,54 @@ function consumeStatement(d1, { userId, projectId, credits, source }) {
           updated_at = datetime('now')
       WHERE user_id = ? AND project_id = ?
         AND credits_gifted >= ?
-    `).bind(credits, credits, Number(userId), projectId, credits);
+        AND EXISTS (
+          SELECT 1 FROM usage_logs
+          WHERE job_id = ? AND project_id = ? AND status = 'pending'
+        )
+    `).bind(credits, credits, Number(userId), projectId, credits, jobId, projectId);
   }
 
   return null;
 }
 
-export async function consumeCredit(d1, { userId, projectId, jobId, credits = 1, consumeOrder }) {
+export async function consumeCredit(d1, {
+  userId,
+  projectId,
+  jobId,
+  credits = 1,
+  consumeOrder = CREDIT_SOURCE_LIST,
+}) {
+  if (!jobId) throw new Error('consumeCredit: jobId is required');
+  const safeCredits = Math.max(1, Math.floor(Number(credits) || 1));
+
   const db = getDb(d1);
-  await ensureUserQuota(d1, { userId, projectId });
+  await ensureUserQuota(d1, { userId, projectId, giftedCredits: 0 });
 
-  const existingUsage = await db
-    .select()
-    .from(usageLogs)
-    .where(eq(usageLogs.jobId, jobId))
-    .get();
-  if (existingUsage?.status === 'success') {
-    const updated = await getUserCreditBalance(d1, { userId, projectId });
-    return { success: true, remaining: updated.remaining, source: existingUsage.source, idempotent: true };
-  }
-  if (existingUsage) {
-    return { success: false, error: `job_${existingUsage.status || 'exists'}`, remaining: 0 };
+  // 1) 先抢占 jobId：INSERT OR IGNORE pending 行
+  const claim = await d1.prepare(`
+    INSERT OR IGNORE INTO usage_logs
+      (user_id, project_id, job_id, credits_used, source, status)
+    VALUES (?, ?, ?, ?, NULL, 'pending')
+  `).bind(Number(userId), projectId, jobId, safeCredits).run();
+
+  if (!claim.meta?.changes) {
+    // 同 jobId 已存在：根据状态返回幂等结果
+    const existing = await db
+      .select()
+      .from(usageLogs)
+      .where(eq(usageLogs.jobId, jobId))
+      .get();
+    if (existing?.status === USAGE_LOG_STATUS.success) {
+      const updated = await getUserCreditBalance(d1, { userId, projectId });
+      return { success: true, remaining: updated.remaining, source: existing.source, idempotent: true };
+    }
+    if (existing?.status === USAGE_LOG_STATUS.refunded) {
+      return { success: false, error: 'job_refunded', remaining: 0 };
+    }
+    return { success: false, error: `job_${existing?.status || 'in_progress'}`, remaining: 0 };
   }
 
+  // 2) 触发周期续期/冻结（不影响并发抢占）
   const quota = await db
     .select()
     .from(userQuotas)
@@ -326,161 +444,168 @@ export async function consumeCredit(d1, { userId, projectId, jobId, credits = 1,
   const subscription = await getCurrentSubscription(db, { userId, projectId });
   await refreshSubscriptionPeriod(d1, quota, subscription);
 
-  let source;
-  let result = { meta: { changes: 0 } };
-  for (const candidate of consumeOrder || ['monthly', 'purchased', 'gifted']) {
-    const statement = consumeStatement(d1, { userId, projectId, credits, source: candidate });
-    if (!statement) continue;
+  // 3) 按顺序尝试每个来源；成功的一笔会把 pending 翻成 success
+  let appliedSource = null;
+  for (const candidate of consumeOrder) {
+    const update = consumeStatement(d1, {
+      userId,
+      projectId,
+      jobId,
+      credits: safeCredits,
+      source: candidate,
+    });
+    if (!update) continue;
 
     const [updateResult] = await d1.batch([
-      statement,
+      update,
       d1.prepare(`
-        INSERT OR IGNORE INTO usage_logs
-          (user_id, project_id, job_id, credits_used, source, status)
-        SELECT ?, ?, ?, ?, ?, 'success'
-        WHERE changes() > 0
-      `).bind(Number(userId), projectId, jobId, credits, candidate),
+        UPDATE usage_logs
+        SET source = ?, status = 'success', updated_at = datetime('now')
+        WHERE job_id = ? AND project_id = ? AND status = 'pending'
+          AND changes() > 0
+      `).bind(candidate, jobId, projectId),
       d1.prepare(`
         INSERT OR IGNORE INTO credit_transactions
           (user_id, project_id, type, source, amount, platform, external_id)
-        SELECT ?, ?, 'consume', ?, ?, 'internal', ?
+        SELECT ?, ?, ?, ?, ?, ?, ?
         WHERE EXISTS (
           SELECT 1 FROM usage_logs
-          WHERE job_id = ?
-            AND user_id = ?
-            AND project_id = ?
-            AND status = 'success'
-            AND source = ?
+          WHERE job_id = ? AND project_id = ? AND status = 'success' AND source = ?
         )
       `).bind(
         Number(userId),
         projectId,
+        CREDIT_TX_TYPES.consume,
         candidate,
-        -credits,
+        -safeCredits,
+        PAYMENT_PLATFORMS.internal,
         jobId,
         jobId,
-        Number(userId),
         projectId,
         candidate,
       ),
     ]);
 
-    result = updateResult;
     if (updateResult.meta?.changes) {
-      source = candidate;
+      appliedSource = candidate;
       break;
     }
   }
 
-  if (!result.meta?.changes) {
+  if (!appliedSource) {
+    // 没有可用额度：把抢占行标记为 failed，避免阻塞后续相同 jobId 的查询
+    await d1.prepare(`
+      UPDATE usage_logs
+      SET status = 'failed', updated_at = datetime('now')
+      WHERE job_id = ? AND project_id = ? AND status = 'pending'
+    `).bind(jobId, projectId).run();
     return { success: false, error: 'no_credits', remaining: 0 };
   }
 
   const updated = await getUserCreditBalance(d1, { userId, projectId });
-  return { success: true, remaining: updated.remaining, source };
+  return { success: true, remaining: updated.remaining, source: appliedSource };
 }
 
-export async function updateUsageLog(d1, { jobId, status, metadata }) {
+// 仅用于在 consumeCredit 之后给 usage_log 追加业务 metadata。
+// 不允许直接改 status：status 由 consumeCredit/refundCredit 通过原子状态转换管理。
+// userId 必填，用于校验调用方与 usage_log 行所属用户一致，防止越权。
+export async function updateUsageLog(d1, { userId, projectId, jobId, metadata }) {
+  if (!jobId) throw new Error('updateUsageLog: jobId is required');
+  if (userId == null) throw new Error('updateUsageLog: userId is required');
+
   const db = getDb(d1);
+  const conditions = [eq(usageLogs.jobId, jobId), eq(usageLogs.userId, Number(userId))];
+  if (projectId != null) conditions.push(eq(usageLogs.projectId, projectId));
+
   await db
     .update(usageLogs)
     .set({
-      ...(status ? { status } : {}),
       ...(metadata !== undefined ? { metadata: JSON.stringify(metadata) } : {}),
       updatedAt: sql`datetime('now')`,
     })
-    .where(eq(usageLogs.jobId, jobId))
+    .where(and(...conditions))
     .run();
 }
 
+function refundColumnUpdate(source) {
+  if (source === CREDIT_SOURCES.monthly) {
+    return 'period_used = max(period_used - ?, 0)';
+  }
+  if (source === CREDIT_SOURCES.purchased) {
+    return 'credits_purchased = credits_purchased + ?';
+  }
+  if (source === CREDIT_SOURCES.gifted) {
+    return 'credits_gifted = credits_gifted + ?';
+  }
+  return null;
+}
+
 export async function refundCredit(d1, { userId, projectId, jobId, metadata }) {
+  if (!jobId) throw new Error('refundCredit: jobId is required');
   const db = getDb(d1);
+
   const usage = await db
     .select()
     .from(usageLogs)
     .where(eq(usageLogs.jobId, jobId))
     .get();
-
-  if (!usage || usage.status === 'refunded') {
+  if (!usage || usage.status !== USAGE_LOG_STATUS.success) {
     return { refunded: false };
   }
 
-  const credits = usage.creditsUsed || 1;
-  let refundStatement = null;
-  if (usage.source === 'monthly') {
-    refundStatement = d1.prepare(`
-      UPDATE user_quotas
-      SET period_used = max(period_used - ?, 0),
-          total_used = max(total_used - ?, 0),
-          updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
-        AND EXISTS (
-          SELECT 1 FROM usage_logs
-          WHERE job_id = ? AND status != 'refunded'
-        )
-    `).bind(credits, credits, Number(userId), projectId, jobId);
-  } else if (usage.source === 'purchased') {
-    refundStatement = d1.prepare(`
-      UPDATE user_quotas
-      SET credits_purchased = credits_purchased + ?,
-          total_used = max(total_used - ?, 0),
-          updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
-        AND EXISTS (
-          SELECT 1 FROM usage_logs
-          WHERE job_id = ? AND status != 'refunded'
-        )
-    `).bind(credits, credits, Number(userId), projectId, jobId);
-  } else if (usage.source === 'gifted') {
-    refundStatement = d1.prepare(`
-      UPDATE user_quotas
-      SET credits_gifted = credits_gifted + ?,
-          total_used = max(total_used - ?, 0),
-          updated_at = datetime('now')
-      WHERE user_id = ? AND project_id = ?
-        AND EXISTS (
-          SELECT 1 FROM usage_logs
-          WHERE job_id = ? AND status != 'refunded'
-        )
-    `).bind(credits, credits, Number(userId), projectId, jobId);
+  // 校验调用方 userId 必须匹配 usage_log 上的 userId（防越权扣别人的额度）。
+  // userId 缺省时（内部任务）信任 usage_log 自己的值。
+  if (userId != null && Number(userId) !== usage.userId) {
+    return { refunded: false, error: 'user_mismatch' };
+  }
+  if (projectId != null && projectId !== usage.projectId) {
+    return { refunded: false, error: 'project_mismatch' };
   }
 
-  if (!refundStatement) return { refunded: false };
+  const ownerUserId = usage.userId;
+  const ownerProjectId = usage.projectId;
+  const credits = usage.creditsUsed || 1;
+  const source = usage.source;
+  const columnUpdate = refundColumnUpdate(source);
+  if (!columnUpdate) return { refunded: false };
 
-  const [updateResult] = await d1.batch([
-    refundStatement,
+  // 关键：先把 usage_logs.status 从 success 抢占翻到 refunded（条件 status='success'）。
+  // 该 UPDATE 只能成功一次，因此后续的额度回补/流水也只会执行一次。
+  const claim = await d1.prepare(`
+    UPDATE usage_logs
+    SET status = 'refunded',
+        metadata = COALESCE(?, metadata),
+        updated_at = datetime('now')
+    WHERE job_id = ?
+      AND project_id = ?
+      AND status = 'success'
+  `).bind(metadata ? JSON.stringify(metadata) : null, jobId, ownerProjectId).run();
+
+  if (!claim.meta?.changes) return { refunded: false };
+
+  await d1.batch([
     d1.prepare(`
-      UPDATE usage_logs
-      SET status = 'refunded',
-          metadata = ?,
+      UPDATE user_quotas
+      SET ${columnUpdate},
+          total_used = max(total_used - ?, 0),
           updated_at = datetime('now')
-      WHERE job_id = ?
-        AND status != 'refunded'
-        AND changes() > 0
-    `).bind(metadata ? JSON.stringify(metadata) : null, jobId),
+      WHERE user_id = ? AND project_id = ?
+    `).bind(credits, credits, ownerUserId, ownerProjectId),
     d1.prepare(`
       INSERT OR IGNORE INTO credit_transactions
         (user_id, project_id, type, source, amount, platform, external_id, metadata)
-      SELECT ?, ?, 'refund', ?, ?, 'internal', ?, ?
-      WHERE EXISTS (
-        SELECT 1 FROM usage_logs
-        WHERE job_id = ?
-          AND user_id = ?
-          AND project_id = ?
-          AND status = 'refunded'
-      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      Number(userId),
-      projectId,
-      usage.source,
+      ownerUserId,
+      ownerProjectId,
+      CREDIT_TX_TYPES.refund,
+      source,
       credits,
+      PAYMENT_PLATFORMS.internal,
       `refund:${jobId}`,
       metadata ? JSON.stringify(metadata) : null,
-      jobId,
-      Number(userId),
-      projectId,
     ),
   ]);
 
-  return { refunded: Boolean(updateResult.meta?.changes) };
+  return { refunded: true };
 }

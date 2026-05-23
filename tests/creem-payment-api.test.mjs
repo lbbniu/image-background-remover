@@ -347,7 +347,7 @@ test('Creem webhook completes credit purchase from checkout.completed', async ()
           id: 'ch_credit_paid',
           object: 'checkout',
           metadata: { kind: 'credit_purchase' },
-          order: { id: 'ord_credit_paid' },
+          order: { id: 'ord_credit_paid', total_amount: '4.99' },
           product: { id: 'creem_test_50_credits' },
         },
       }),
@@ -364,6 +364,44 @@ test('Creem webhook completes credit purchase from checkout.completed', async ()
     assert.equal(quota.credits_purchased, 50);
     assert.equal(quota.total_purchased, 50);
     assert.equal(event.status, 'processed');
+  } finally {
+    d1.close();
+  }
+});
+
+test('Creem webhook rejects credit purchase when payload amount is below local price', async () => {
+  const d1 = createSchemaBackedD1();
+  try {
+    const user = await createUser(d1);
+    await createPendingCreditPurchase(d1, {
+      userId: user.id,
+      projectId: 'clearcut',
+      packageName: '50 Credits',
+      credits: 50,
+      pricePaidCents: 499,
+      platform: 'creem',
+      externalId: 'ch_credit_short',
+    });
+
+    await creemWebhookHandler({
+      request: await signedWebhookRequest({
+        id: 'evt_credit_short',
+        eventType: 'checkout.completed',
+        object: {
+          id: 'ch_credit_short',
+          object: 'checkout',
+          metadata: { kind: 'credit_purchase' },
+          order: { id: 'ord_short', total_amount: '0.10' }, // 实付 10 分 < 499 分
+          product: { id: 'creem_test_50_credits' },
+        },
+      }),
+      env: envFor(d1),
+    });
+
+    const purchase = await getPurchase(d1, 'ch_credit_short');
+    const quota = await getQuota(d1, user.id);
+    assert.equal(purchase.status, 'pending');
+    assert.equal(quota.credits_purchased, 0);
   } finally {
     d1.close();
   }
@@ -674,6 +712,7 @@ test('Creem webhook validates database binding and unsigned development mode', a
       request: await signedWebhookRequest({ id: 'evt_no_db', eventType: 'checkout.completed', object: {} }),
       env: envFor(undefined),
     });
+    // 没有 secret 且没有显式 ALLOW_UNSIGNED → 必须 503
     const unsigned = await creemWebhookHandler({
       request: new Request('https://example.test/api/webhooks/creem', {
         method: 'POST',
@@ -682,17 +721,27 @@ test('Creem webhook validates database binding and unsigned development mode', a
       }),
       env: envFor(d1, { CREEM_WEBHOOK_SECRET: '' }),
     });
+    // 显式开启 dev 模式才允许跳过验签
+    const unsignedDev = await creemWebhookHandler({
+      request: new Request('https://example.test/api/webhooks/creem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'evt_unsigned_dev', eventType: 'customer.created', object: { id: 'cust_1' } }),
+      }),
+      env: envFor(d1, { CREEM_WEBHOOK_SECRET: '', CREEM_WEBHOOK_ALLOW_UNSIGNED: 'true' }),
+    });
     const badJson = await creemWebhookHandler({
       request: new Request('https://example.test/api/webhooks/creem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{',
       }),
-      env: envFor(d1, { CREEM_WEBHOOK_SECRET: '' }),
+      env: envFor(d1, { CREEM_WEBHOOK_SECRET: '', CREEM_WEBHOOK_ALLOW_UNSIGNED: 'true' }),
     });
 
     assert.equal(missingDb.status, 500);
-    assert.equal(unsigned.status, 200);
+    assert.equal(unsigned.status, 503);
+    assert.equal(unsignedDev.status, 200);
     assert.equal(badJson.status, 200);
     assert.equal((await badJson.json()).received, true);
   } finally {

@@ -1,4 +1,13 @@
-import { findOrCreateOAuthUser, signJWT, setAuthCookie } from '../../../../foundation/modules/auth/index.js';
+import {
+  clearOAuthStateCookie,
+  findOrCreateOAuthUser,
+  getSessionConfig,
+  parseCookies,
+  readOAuthStateFromCookies,
+  setAuthCookie,
+  signJWT,
+  verifyOAuthState,
+} from '../../../../foundation/modules/auth/index.js';
 import { getAppOrigin, getOAuthRedirectUri, getProjectId } from '../../../../foundation/modules/core/index.js';
 
 export async function onRequestGet(context) {
@@ -7,9 +16,16 @@ export async function onRequestGet(context) {
   const appOrigin = getAppOrigin(env, request);
   const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
+  const stateFromQuery = url.searchParams.get('state');
 
   if (error || !code) {
     return Response.redirect(`${appOrigin}/?error=auth_failed`, 302);
+  }
+
+  // CSRF 防护：authorization 时种下的 oauth_state cookie 必须与 callback 收到的 state 一致。
+  const stateFromCookie = readOAuthStateFromCookies(parseCookies(request.headers.get('Cookie')));
+  if (!verifyOAuthState({ stateFromQuery, stateFromCookie })) {
+    return Response.redirect(`${appOrigin}/?error=invalid_state`, 302);
   }
 
   let step = 'init';
@@ -49,6 +65,7 @@ export async function onRequestGet(context) {
     const googleUser = await userRes.json();
     step = 'db';
 
+    const projectId = getProjectId(env);
     let userId = googleUser.id;
     if (env.DB) {
       try {
@@ -56,9 +73,10 @@ export async function onRequestGet(context) {
           platform: 'google',
           externalId: googleUser.id,
           email: googleUser.email,
+          emailVerified: googleUser.verified_email === true || googleUser.email_verified === true,
           name: googleUser.name,
           avatar: googleUser.picture,
-          projectId: getProjectId(env),
+          projectId,
         });
       } catch (dbErr) {
         console.error('D1 error (non-fatal):', dbErr);
@@ -66,21 +84,24 @@ export async function onRequestGet(context) {
     }
 
     step = 'jwt';
-    const secret = env.JWT_SECRET || 'clearcut-default-secret-change-me';
+    const sessionConfig = getSessionConfig(env);
     const jwt = await signJWT({
       sub: String(userId),
       email: googleUser.email,
       name: googleUser.name,
       avatar: googleUser.picture,
-    }, secret);
-
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': `${appOrigin}/`,
-        'Set-Cookie': setAuthCookie(jwt, undefined, env.COOKIE_DOMAIN || ''),
-      },
+    }, sessionConfig.secret, {
+      issuer: sessionConfig.issuer,
+      audience: sessionConfig.audience,
     });
+
+    const headers = new Headers({ 'Location': `${appOrigin}/` });
+    headers.append('Set-Cookie', setAuthCookie(jwt, undefined, {
+      cookieDomain: sessionConfig.cookieDomain,
+      secure: sessionConfig.cookieSecure,
+    }));
+    headers.append('Set-Cookie', clearOAuthStateCookie({ secure: sessionConfig.cookieSecure }));
+    return new Response(null, { status: 302, headers });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`OAuth callback error at step [${step}]:`, err);

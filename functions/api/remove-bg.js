@@ -123,6 +123,8 @@ export async function onRequestPost(context) {
     // 更新使用日志的处理时间
     try {
       await updateUsageLog(env.DB, {
+        userId: user.sub,
+        projectId,
         jobId,
         metadata: {
           provider: removal.provider,

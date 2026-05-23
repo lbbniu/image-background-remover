@@ -1,6 +1,6 @@
 import { getUser } from '../../../foundation/modules/auth/index.js';
 import { getProjectId } from '../../../foundation/modules/core/index.js';
-import { createPendingCreditPurchase, getCreditPackage } from '../../../foundation/modules/payments/index.js';
+import { createPendingCreditPurchaseByPackage, getCreditPackage } from '../../../foundation/modules/payments/index.js';
 import { createOrder } from '../../../foundation/integrations/index.js';
 
 export async function onRequestPost(context) {
@@ -32,13 +32,11 @@ export async function onRequestPost(context) {
       invoiceId,
     });
 
-    await createPendingCreditPurchase(env.DB, {
+    await createPendingCreditPurchaseByPackage(env.DB, {
       userId: user.sub,
       projectId,
-      packageName: pack.label,
-      credits: pack.credits,
-      pricePaidCents: Math.round(Number(pack.price) * 100),
       platform: 'paypal',
+      packageId: pack.packageId,
       externalId: order.id,
     });
 
