@@ -1,0 +1,9 @@
+name = "clearcut"
+pages_build_output_dir = "out"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "clearcut-db"
+database_id = "43f23e42-64d5-4966-9754-65ce4d93f020"

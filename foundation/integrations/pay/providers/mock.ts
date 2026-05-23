@@ -39,7 +39,7 @@ export class MockProvider implements PaymentProvider {
     return {
       id: sessionId,
       url: `${baseUrl}/subscription/${sessionId}?provider=${this.name}`,
-      status: "pending",
+      status: "active",
       plan: input.plan,
       currency: input.currency,
       provider: this.name,

@@ -77,7 +77,7 @@ export class CreemProvider implements PaymentProvider {
     return {
       id: result.id,
       url: result.url,
-      status: "pending",
+      status: "active",
       plan: input.plan,
       currency: input.currency,
       provider: this.name,

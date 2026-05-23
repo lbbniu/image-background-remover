@@ -5,6 +5,8 @@ import type {
   SubscribeInput,
   SubscriptionResult,
   CurrencyCode,
+  CheckoutInput,
+  CheckoutResult,
 } from "../types.js";
 
 export class PayPalProvider implements PaymentProvider {
@@ -129,7 +131,7 @@ export class PayPalProvider implements PaymentProvider {
     // PayPal uses Orders API for one-time payments
     // Note: PayPal Orders API requires user approval via redirect for most cases
     // This creates an order that will be in CREATED status until user approves
-    let amount: number;
+    let amount = 0;
 
     if (input.productId) {
       // Product ID - fetch product and use its price
@@ -327,6 +329,42 @@ export class PayPalProvider implements PaymentProvider {
     };
   }
 
+  async checkout(input: CheckoutInput): Promise<CheckoutResult> {
+    if (input.plan) {
+      // Subscription checkout
+      const result = await this.subscribe({
+        plan: input.plan,
+        currency: input.currency,
+        email: input.email || "",
+        successUrl: input.successUrl,
+        cancelUrl: input.cancelUrl,
+      });
+      return {
+        id: result.id,
+        url: result.url || "",
+        provider: this.name,
+      };
+    }
+
+    if (!input.amount) {
+      throw new Error("PayPal checkout requires either 'plan' or 'amount'");
+    }
+
+    // One-time payment checkout
+    const result = await this.charge({
+      amount: input.amount,
+      currency: input.currency,
+      email: input.email,
+      successUrl: input.successUrl,
+      cancelUrl: input.cancelUrl,
+    });
+    return {
+      id: result.id,
+      url: result.url || "",
+      provider: this.name,
+    };
+  }
+
   async subscribe(input: SubscribeInput): Promise<SubscriptionResult> {
     if (!input.email) {
       throw new Error("Email is required for PayPal subscriptions");
@@ -428,7 +466,7 @@ export class PayPalProvider implements PaymentProvider {
             ? "paused"
             : subscription.status === "CANCELLED"
               ? "cancelled"
-              : "pending",
+              : "active",
       plan: subscription.plan_id || input.plan,
       currency: input.currency,
       provider: this.name,

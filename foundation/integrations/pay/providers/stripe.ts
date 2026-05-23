@@ -10,6 +10,7 @@ import type {
   SubscriptionResult,
   CheckoutInput,
   CheckoutResult,
+  CurrencyCode,
 } from "../types.js";
 // Stripe API response types
 
@@ -326,13 +327,9 @@ export class StripeProvider implements PaymentProvider {
   async charge(input: ChargeInput): Promise<ChargeResult> {
     const successUrl =
       input.successUrl ??
-      undefined ??
-      undefined ??
       "https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}";
     const cancelUrl =
       input.cancelUrl ??
-      undefined ??
-      undefined ??
       "https://app.example.com/cancel";
 
     let lineItems: Array<{
@@ -464,13 +461,9 @@ export class StripeProvider implements PaymentProvider {
     // Prioritize input URLs over environment variables
     const successUrl =
       input.successUrl ??
-      undefined ??
-      undefined ??
       "https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}";
     const cancelUrl =
       input.cancelUrl ??
-      undefined ??
-      undefined ??
       "https://app.example.com/cancel";
 
     // Find price by plan identifier
@@ -588,7 +581,7 @@ export class StripeProvider implements PaymentProvider {
     return {
       id: session.id,
       url: session.url,
-      status: "pending",
+      status: "active",
       plan: input.plan,
       currency: input.currency,
       provider: this.name,
@@ -619,7 +612,7 @@ export class StripeProvider implements PaymentProvider {
         subscription.items.data[0]?.price.lookup_key ||
         subscription.items.data[0]?.price.id ||
         "unknown",
-      currency: subscription.currency.toUpperCase(),
+      currency: subscription.currency.toUpperCase() as CurrencyCode,
       provider: this.name,
     };
   }
@@ -650,7 +643,7 @@ export class StripeProvider implements PaymentProvider {
         subscription.items.data[0]?.price.lookup_key ||
         subscription.items.data[0]?.price.id ||
         "unknown",
-      currency: subscription.currency.toUpperCase(),
+      currency: subscription.currency.toUpperCase() as CurrencyCode,
       provider: this.name,
     };
   }
@@ -680,7 +673,7 @@ export class StripeProvider implements PaymentProvider {
         subscription.items.data[0]?.price.lookup_key ||
         subscription.items.data[0]?.price.id ||
         "unknown",
-      currency: subscription.currency.toUpperCase(),
+      currency: subscription.currency.toUpperCase() as CurrencyCode,
       provider: this.name,
     };
   }
@@ -741,13 +734,9 @@ export class StripeProvider implements PaymentProvider {
     // Prioritize input URLs over environment variables
     const successUrl =
       input.successUrl ??
-      undefined ??
-      undefined ??
       "https://example.com/success?session_id={CHECKOUT_SESSION_ID}";
     const cancelUrl =
       input.cancelUrl ??
-      undefined ??
-      undefined ??
       "https://example.com/cancel";
 
     if (input.plan) {
